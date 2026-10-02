@@ -1,10 +1,12 @@
-// Web smoke test: first-run setup (or login) → create a meeting → write notes → reload → notes are still there.
-// Needs a running server with the built PWA (WEB_DIST_DIR) on E2E_BASE_URL (default http://localhost:8787).
-// On an already set-up database, provide the owner credentials with E2E_EMAIL / E2E_PASSWORD.
-import { expect, request as pwRequest, test, type Page } from '@playwright/test';
+// Web smoke test: first-run setup in the UI → create a meeting → write notes → reload → notes are still there;
+// offline notes are queued (未同期) and a newer server copy is never overwritten.
+// Runs against its own isolated server (fresh DB, own port) started by ./support/test.
+import { request as pwRequest, type Page } from '@playwright/test';
+import { test, expect, useServer } from './support/test';
 
-const EMAIL = process.env.E2E_EMAIL ?? 'e2e-owner@example.com';
-const PASSWORD = process.env.E2E_PASSWORD ?? 'e2e-password-1234';
+useServer({ name: 'smoke' });
+const EMAIL = 'e2e-owner@example.com';
+const PASSWORD = 'e2e-password-1234';
 
 async function signIn(page: Page, needsSetup: boolean) {
   await page.goto('/');
@@ -103,4 +105,44 @@ test('offline notes are queued (未同期) and a newer server copy is never over
   expect(merged).toContain('v2 オフラインで追記');
   expect(merged).toContain('v2 別の端末');
   await other.dispose();
+});
+
+test('settings: license screen and write connectors (credentials are never shown back)', async ({ page, request }) => {
+  const status = await (await request.get('/api/setup/status')).json();
+  await signIn(page, !!status.needsSetup);
+  const wsPath = new URL(page.url()).pathname.match(/^\/w\/[0-9a-f-]{36}/)![0];
+
+  // このアプリについて・ライセンス
+  await page.goto(`${wsPath}/settings`);
+  await page.getByRole('link', { name: 'このアプリについて・ライセンス' }).click();
+  const sense = page.getByTestId('model-sense-voice');
+  await expect(sense).toContainText('SenseVoiceSmall');
+  await expect(sense).toContainText('FunASR Model Open Source License Agreement v1.1');
+  await expect(sense).toContainText('Converted to ONNX by k2-fsa/sherpa-onnx');
+  await expect(page.getByTestId('model-3d-speaker')).toContainText('ライセンス要確認');
+  await page.getByRole('button', { name: 'ここに全文を表示' }).click();
+  await expect(page.locator('pre.notices-text')).toContainText('THIRD_PARTY_NOTICES');
+
+  // 送信先コネクタ: Slack incoming webhook + HubSpot token are accepted, stored, and never displayed again
+  await page.getByRole('link', { name: 'コネクタ', exact: true }).click();
+  const form = page.locator('#write-connectors');
+  const hook = 'https://hooks.slack.com/services/T0000/B0000/e2eSecretPart';
+  await form.getByLabel('種類').selectOption({ label: 'Slack（Incoming Webhook）' });
+  await form.getByLabel('Slack Incoming Webhook のURL').fill(hook);
+  await form.getByLabel('チャンネル名（表示用）').fill('#sales');
+  await form.getByRole('button', { name: '送信先を追加' }).click();
+  await expect(page.getByText('送信先を追加しました')).toBeVisible();
+  await form.getByLabel('種類').selectOption({ label: 'HubSpot' });
+  await form.getByLabel('HubSpot のアクセストークン').fill('pat-na1-e2e-secret-token');
+  await form.getByRole('button', { name: '送信先を追加' }).click();
+  const connected = page.locator('section.card').filter({ has: page.locator('.card-title', { hasText: '接続中' }) });
+  await expect(connected.locator('li.item')).toHaveCount(2);
+  await page.reload();
+  const html = await page.content();
+  expect(html).not.toContain('e2eSecretPart');
+  expect(html).not.toContain('pat-na1-e2e-secret-token');
+  const api = await (await page.context().request.get(`/api${wsPath}/connectors`)).text();
+  expect(api).toContain('"provider":"hubspot"');
+  expect(api).not.toContain('e2eSecretPart');
+  expect(api).not.toContain('pat-na1-e2e-secret-token');
 });

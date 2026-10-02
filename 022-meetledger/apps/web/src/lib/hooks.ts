@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { api, NetworkError } from './api';
+import { api, listOf, NetworkError } from './api';
 import { listOps, subscribeOutbox, type OutboxOp } from './offline/outbox';
 
 export interface ApiState<T> {
@@ -160,4 +160,73 @@ export async function copyText(text: string): Promise<boolean> {
       return false;
     }
   }
+}
+
+/** Opaque cursor of a paged API response (`nextCursor`), if any. */
+export function nextCursorOf(data: unknown): string | null {
+  const c = (data as { nextCursor?: unknown } | null | undefined)?.nextCursor;
+  return typeof c === 'string' && c ? c : null;
+}
+
+/** `total` of a paged API response (first page), if the server reports it. */
+export function totalOf(data: unknown): number | undefined {
+  const n = (data as { total?: unknown } | null | undefined)?.total;
+  return typeof n === 'number' ? n : undefined;
+}
+
+export function withCursor(path: string, cursor: string): string {
+  return `${path}${path.includes('?') ? '&' : '?'}cursor=${encodeURIComponent(cursor)}`;
+}
+
+export interface PagedState<T> extends ApiState<unknown> {
+  /** First page + every page loaded with loadMore (deduplicated by id). undefined until the first page arrives. */
+  items: T[] | undefined;
+  total: number | undefined;
+  hasMore: boolean;
+  loadingMore: boolean;
+  moreError: unknown;
+  loadMore(): Promise<void>;
+}
+
+/**
+ * Cursor-paged list (`{ items, nextCursor, total }`): the first page comes from useApi (offline cache, reload), further
+ * pages are appended by loadMore() using `?cursor=`.
+ */
+export function usePaged<T extends { id?: string }>(path: string | null, ...keys: string[]): PagedState<T> {
+  const first = useApi<unknown>(path, { keepPrevious: true });
+  const [extra, setExtra] = useState<T[]>([]);
+  const [cursor, setCursor] = useState<string | null>(null);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [moreError, setMoreError] = useState<unknown>(null);
+  useEffect(() => {
+    setExtra([]);
+    setCursor(nextCursorOf(first.data));
+    setMoreError(null);
+  }, [first.data]);
+  const loadMore = useCallback(async () => {
+    if (!path || !cursor) return;
+    setLoadingMore(true);
+    setMoreError(null);
+    try {
+      const r = await api.get<unknown>(withCursor(path, cursor));
+      setExtra((cur) => [...cur, ...listOf<T>(r, ...keys)]);
+      setCursor(nextCursorOf(r));
+    } catch (e) {
+      setMoreError(e);
+    } finally {
+      setLoadingMore(false);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [path, cursor]);
+  let items: T[] | undefined;
+  if (first.data !== undefined) {
+    const seen = new Set<string>();
+    items = [];
+    for (const x of [...listOf<T>(first.data, ...keys), ...extra]) {
+      if (x.id && seen.has(x.id)) continue;
+      if (x.id) seen.add(x.id);
+      items.push(x);
+    }
+  }
+  return { ...first, items, total: totalOf(first.data), hasMore: !!cursor, loadingMore, moreError, loadMore };
 }

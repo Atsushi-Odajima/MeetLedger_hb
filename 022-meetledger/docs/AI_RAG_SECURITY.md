@@ -202,22 +202,29 @@ AI OFF / Confidential のデータが外部送信されないこと、GuardedHtt
 - 検索/askのTxでは `SET LOCAL jit = off`（悲観的なコスト見積りでJITが発動し、1クエリあたり数百msのコンパイルが発生していたため）。
 - 1行と誤推定されたCTEに対する再実行（ネストループ）を避けるため、ヒットにMeeting情報を持たせ外側のJOINを無くし、話者名は最終ページ分のみ解決。
 
-**任意のDBA設定（推奨）**: DBA が superuser で `ALTER FUNCTION ts_match_vq(tsvector, tsquery) LEAKPROOF;` を実行すると（データベース単位）、
-起動中に自動検出（`pg_proc.proleakproof`、10分キャッシュ）し、ヒット数が少ない語（各2,000件以下）は GIN を使う**完全な結果の経路**に切り替わる
-（ACLは同じSQL内で適用、`truncated: false`）。`ts_match_vq` は引数の内容に依存するエラーを出さない比較関数だが、LEAKPROOF 指定は
-DBA が判断する事項のため、マイグレーションでは行わない（アプリのロールでは実行できない）。
+**任意のDBA設定（推奨）とハイブリッド経路**: DBA が superuser で `ALTER FUNCTION ts_match_vq(tsvector, tsquery) LEAKPROOF;` を実行すると
+（データベース単位）、起動中に自動検出（`pg_proc.proleakproof`、1分キャッシュ）し、**稀な語だけ** GIN を使う完全な経路（`query.path: 'exact'`、
+`truncated: false`、ACLは同じSQL内）に切り替わる。判定（`windows.ts: decideSearchPath`）:
+1. 語ごとのプランナ推定（EXPLAIN、実行なし）から一致件数の上限を計算（フレーズ/AND は最小値。PostgreSQL はフレーズのバイグラムを独立とみなし
+   大きく過小推定するため）。最頻要素に無い語は「存在しない語」と同じ既定推定になるため、稀な可能性ありとして扱う。上限 > 20,000 → 窓。
+2. それ以外は GIN で生の一致数を数える（各ブランチ `LIMIT 2001`、`statement_timeout` 150 ms・SAVEPOINT で保護）。全ブランチ ≤ 2,000 → exact、
+   超過/タイムアウト → 窓。
+3. 窓のクエリでは `ts_match_vq(tsv, q)` の関数形式を使う（`@@` と同じ意味だがインデックス条件にならない）。LEAKPROOF 下で頻出語に GIN ビットマップ
+   （数十万件）が選ばれて遅くなるのを防ぐ。ask・人物文書・excludedMeetings も同様。
+`ts_match_vq` は引数の内容に依存するエラーを出さない比較関数だが、LEAKPROOF 指定は DBA が判断する事項のため、マイグレーションでは行わない
+（アプリのロールでは実行できない）。
 
-**計測**（`scripts/perf` の合成データ: 50,000 Meeting / 1,000万セグメント / 160万 search_docs、in-process、各10回）:
-| ケース | 変更前 p50 | 変更後 p50 / p95 |
-|---|---|---|
-| search 価格（頻出） | 10.3 s | 85 / 94 ms |
-| search ProofFlow | 10.3 s | 80 / 89 ms |
-| search 公開日 11月（AND+フレーズ） | >15 s（タイムアウト） | 86 / 90 ms |
-| search 研修の日程（フレーズ） | >15 s（タイムアウト） | 87 / 93 ms |
-| search 価格 + personId | 7.6 s | 41 / 62 ms |
-| search 価格 + projectId | 0.19 s | 86 / 110 ms |
-| search 一致なしの語 | 7.4 s | 347 / 350 ms（`truncated: true`） |
-| ask 価格について何を決めた？（local） | 3.1 s | 69 / 75 ms |
+**計測**（`scripts/perf` の合成データ: 50,000 Meeting / 1,000万セグメント / 160万 search_docs、in-process、各10回、別ベンチマーク同時実行中の値を含む）:
+| ケース | 変更前 p50 | 既定（非LEAKPROOF） p50 / p95 | LEAKPROOF p50 / p95 |
+|---|---|---|---|
+| search 価格（頻出） | 10.3 s | 85–154 / 94–197 ms | 64 / 75 ms |
+| search ProofFlow | 10.3 s | 80–128 / 89–250 ms | 64 / 72 ms |
+| search 公開日 11月（AND+フレーズ） | >15 s | 81–139 / 89–265 ms | 80 / 100 ms |
+| search 研修の日程（フレーズ） | >15 s | 82–101 / 88–119 ms | 69 / 82 ms |
+| search 価格 + personId | 7.6 s | 39–41 / 45–62 ms | 37 / 47 ms |
+| search 価格 + projectId | 0.19 s | 86–91 / 102–116 ms | 80 / 156 ms |
+| search 一致なしの語 | 7.4 s | 347 / 357 ms（`truncated: true`） | 8–14 / 14–19 ms（exact） |
+| ask 価格について何を決めた？（local） | 3.1 s | 69–77 / 75–93 ms | 82 / 98 ms |
 
 合成データは1 Meeting のセグメントがヒープ上で分散している（1行=1ページ）ため、Meeting単位で連続して挿入される実データでは
 1 Meetingあたりの読み取りが少なく、同じ時間予算でより多くのMeetingを走査できる。

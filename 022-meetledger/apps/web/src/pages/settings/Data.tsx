@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { Alert, Async, Badge, Button, Card, Checkbox, EmptyState, ProgressBar } from '../../components/ui';
 import { Icon } from '../../components/Icon';
-import { useI18n } from '../../i18n';
+import { useI18n, type MsgKey } from '../../i18n';
 import { useWs } from '../../state/workspace';
 import { useToast } from '../../state/toast';
 import { api, listOf } from '../../lib/api';
@@ -69,13 +69,16 @@ function FullImport() {
   const [file, setFile] = useState<File | null>(null);
   const [progress, setProgress] = useState<number | null>(null);
   const [confirm, setConfirm] = useState(false);
+  const [result, setResult] = useState<ImportResultDto | null>(null);
   if (!can('admin')) return null;
   const run = async () => {
     if (!file) return;
     setProgress(0);
+    setResult(null);
     try {
-      await uploadWithProgress(a('/import/full'), file, file.name, (l, total) => setProgress(total ? l / total : 0)).promise;
+      const r = await uploadWithProgress<ImportResultDto>(a('/import/full'), file, file.name, (l, total) => setProgress(total ? l / total : 0)).promise;
       toast.success(t('data.importDone'));
+      setResult(r ?? null);
       setFile(null);
     } catch (e) {
       toast.error(e);
@@ -97,9 +100,32 @@ function FullImport() {
         {t('data.startImport')}
       </Button>
       {progress !== null && <ProgressBar value={progress * 100} label={t('upload.progressLabel')} />}
+      {result?.counts && (
+        <Alert tone="success" title={t('data.importResult')}>
+          <ul className="notice-list" data-testid="import-result">
+            {IMPORT_SUMMARY.map(([table, key]) => (
+              <li key={table}>{t(key, { n: result.counts?.[table] ?? 0 })}</li>
+            ))}
+          </ul>
+          {(result.warnings ?? []).length > 0 && <p className="field-hint">{(result.warnings ?? []).join(' / ')}</p>}
+          <p className="field-hint">{t('data.importCloudNote')}</p>
+        </Alert>
+      )}
     </Card>
   );
 }
+
+interface ImportResultDto {
+  counts?: Record<string, number>;
+  warnings?: string[];
+}
+const IMPORT_SUMMARY: [string, MsgKey][] = [
+  ['meetings', 'data.imported.meetings'],
+  ['decisions', 'data.imported.decisions'],
+  ['actions', 'data.imported.actions'],
+  ['commitments', 'data.imported.commitments'],
+  ['people', 'data.imported.people'],
+];
 
 function DeletionRequests() {
   const { t, fmt, tm } = useI18n();

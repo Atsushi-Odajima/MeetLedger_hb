@@ -1,6 +1,6 @@
 import type { ReactNode } from 'react';
 import type { ActionDto, CommitmentDto, DecisionDto, MeetingDto, QuestionDto } from '@meetledger/shared';
-import { AiBadge, Badge, Card } from './ui';
+import { AiBadge, Alert, Badge, Card } from './ui';
 import { Link } from 'react-router-dom';
 import { ActionItem, CommitmentItem, DecisionChangeItem, DecisionItem, MeetingRow, QuestionItem, SourceLink, toSourceRef } from './ledger';
 import { useWs } from '../state/workspace';
@@ -49,12 +49,21 @@ export interface MemoryDto {
   timeline?: TimelineEvent[];
   events?: TimelineEvent[];
   stats?: Record<string, number>;
+  /** Exact totals of the (capped) sections. */
+  counts?: Partial<Record<'currentDecisions' | 'outstandingCommitments' | 'openActions' | 'openQuestions' | 'recentChanges', number>>;
+  more?: Partial<Record<'currentDecisions' | 'outstandingCommitments' | 'openActions' | 'openQuestions' | 'recentChanges', boolean>>;
+  meetingCount?: number;
+  /** Topic memory: only the most recent items per type were scanned. */
+  scan?: { truncated?: boolean; recentItemsPerType?: number };
+  nextCursor?: string | null;
   [k: string]: unknown;
 }
 
-function Group({ titleKey, n, children }: { titleKey: MsgKey; n: number; children: ReactNode }) {
+function Group({ titleKey, n, shown, moreTo, children }: { titleKey: MsgKey; n: number; shown?: number; moreTo?: string; children: ReactNode }) {
   const { t } = useI18n();
+  const { p } = useWs();
   if (!n) return null;
+  const rest = typeof shown === 'number' ? n - shown : 0;
   return (
     <Card
       title={
@@ -64,6 +73,17 @@ function Group({ titleKey, n, children }: { titleKey: MsgKey; n: number; childre
       }
     >
       {children}
+      {rest > 0 && (
+        <p className="field-hint">
+          {t('brief.more', { n: rest })}
+          {moreTo && (
+            <>
+              {' · '}
+              <Link to={p(moreTo)}>{t('memory.seeAllInLedger')}</Link>
+            </>
+          )}
+        </p>
+      )}
     </Card>
   );
 }
@@ -110,8 +130,9 @@ export function Timeline({ events }: { events: TimelineEvent[] }) {
   );
 }
 
-export function MemoryView({ data }: { data: MemoryDto }) {
+export function MemoryView({ data, timelineFooter }: { data: MemoryDto; timelineFooter?: ReactNode }) {
   const { t, tm } = useI18n();
+  const total = (k: keyof NonNullable<MemoryDto['counts']>, shown: number) => Math.max(shown, data.counts?.[k] ?? 0);
   const decisions = data.currentDecisions ?? data.decisions ?? [];
   const actions = data.openActions ?? data.actions ?? [];
   const commitments = data.outstandingCommitments ?? data.openCommitments ?? data.commitments ?? [];
@@ -126,6 +147,7 @@ export function MemoryView({ data }: { data: MemoryDto }) {
   if (empty) return <p className="muted calm">{t('memory.empty')}</p>;
   return (
     <div className="stack">
+      {data.scan?.truncated && <Alert tone="info">{t('memory.scanTruncated', { n: data.scan.recentItemsPerType ?? '' })}</Alert>}
       {stats.length > 0 && (
         <div className="stat-grid">
           {stats.map(([k, v]) => (
@@ -148,35 +170,35 @@ export function MemoryView({ data }: { data: MemoryDto }) {
           ))}
         </ul>
       </Group>
-      <Group titleKey="memory.decisions" n={decisions.length}>
+      <Group titleKey="memory.decisions" n={total('currentDecisions', decisions.length)} shown={decisions.length} moreTo="/ledger?tab=decisions">
         <ul className="items">
           {decisions.map((d) => (
             <DecisionItem key={d.id} decision={d} />
           ))}
         </ul>
       </Group>
-      <Group titleKey="memory.changes" n={changes.length}>
+      <Group titleKey="memory.changes" n={total('recentChanges', changes.length)} shown={changes.length} moreTo="/ledger?tab=decisions&view=all">
         <ul className="items">
           {changes.map((c, i) => (
             <DecisionChangeItem key={c.previous.id ?? i} change={c} />
           ))}
         </ul>
       </Group>
-      <Group titleKey="memory.actions" n={actions.length}>
+      <Group titleKey="memory.actions" n={total('openActions', actions.length)} shown={actions.length} moreTo="/ledger?tab=actions">
         <ul className="items">
           {actions.map((d) => (
             <ActionItem key={d.id} action={d} />
           ))}
         </ul>
       </Group>
-      <Group titleKey="memory.commitments" n={commitments.length}>
+      <Group titleKey="memory.commitments" n={total('outstandingCommitments', commitments.length)} shown={commitments.length} moreTo="/ledger?tab=commitments">
         <ul className="items">
           {commitments.map((d) => (
             <CommitmentItem key={d.id} c={d} />
           ))}
         </ul>
       </Group>
-      <Group titleKey="memory.questions" n={questions.length}>
+      <Group titleKey="memory.questions" n={total('openQuestions', questions.length)} shown={questions.length} moreTo="/ledger?tab=questions">
         <ul className="items">
           {questions.map((d) => (
             <QuestionItem key={d.id} q={d} />
@@ -185,8 +207,9 @@ export function MemoryView({ data }: { data: MemoryDto }) {
       </Group>
       <Group titleKey="memory.timeline" n={timeline.length}>
         <Timeline events={timeline} />
+        {timelineFooter}
       </Group>
-      <Group titleKey="memory.meetings" n={meetings.length}>
+      <Group titleKey="memory.meetings" n={Math.max(meetings.length, data.meetingCount ?? 0)} shown={meetings.length} moreTo="/meetings">
         <ul className="rows">
           {meetings.map((m) => (
             <MeetingRow key={m.id} m={m} />

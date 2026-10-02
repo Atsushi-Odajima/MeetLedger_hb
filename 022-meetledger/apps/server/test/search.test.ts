@@ -447,6 +447,8 @@ describe('search: scale behaviour (recency windows under RLS)', () => {
     setGinOverride(true);
     try {
       const exact = await search(bob.client, `q=${encodeURIComponent('価格')}&limit=100`);
+      expect(exact.body.query.path).toBe('exact'); // rare on this small data set: estimate + probe -> exact
+      expect(windowed.body.query.path).toBe('window');
       expect(exact.body.truncated).toBe(false);
       expect(exact.body.items.map((h: any) => h.id).sort()).toEqual(windowed.body.items.map((h: any) => h.id).sort());
       expect(exact.body.items.some((h: any) => [ids.priv, ids.sel, ids.tenantB].includes(h.meetingId))).toBe(false);

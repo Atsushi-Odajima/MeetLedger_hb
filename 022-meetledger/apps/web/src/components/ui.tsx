@@ -621,3 +621,22 @@ export function KeyValue({ items }: { items: { k: ReactNode; v: ReactNode }[] })
 export function VisuallyHidden({ children }: { children: ReactNode }) {
   return <span className="sr-only">{children}</span>;
 }
+
+/** "n / total" + "もっと見る" for cursor-paged lists. Renders nothing when everything is shown. */
+export function LoadMore({ shown, total, hasMore, loading, error, onMore }: { shown: number; total?: number; hasMore: boolean; loading?: boolean; error?: unknown; onMore(): void }) {
+  const { t } = useI18n();
+  if (!hasMore && (total === undefined || total <= shown)) return typeof total === 'number' && total > 0 ? <p className="list-count muted">{t('list.totalN', { n: total })}</p> : null;
+  return (
+    <div className="load-more-row">
+      <span className="list-count muted" aria-live="polite">
+        {typeof total === 'number' ? t('list.shownOfTotal', { shown, total }) : t('list.shownN', { n: shown })}
+      </span>
+      {hasMore && (
+        <Button onClick={onMore} loading={loading} icon="chevronDown">
+          {t('list.more')}
+        </Button>
+      )}
+      {!!error && <span className="field-error">{errorMessage(error)}</span>}
+    </div>
+  );
+}

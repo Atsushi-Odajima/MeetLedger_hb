@@ -50,10 +50,10 @@ test('my commitment becomes overdue and shows up in the next brief', async ({ pa
   const c = await ws.get(`/commitments/${mapped.id}`);
   expect(c).toMatchObject({ status: 'open', dueDate: tokyoDate(-3), overdue: true, direction: 'mine' });
 
-  // dashboard: "my commitments" + overdue
+  // dashboard: an overdue promise of mine is listed under "Overdue" (not duplicated in "My Commitments")
   await page.goto(`/w/${ws.wsId}`);
-  await expect(page.locator('#dash-commitments')).toContainText('資料をお送りします');
   await expect(page.locator('#dash-overdue')).toContainText('資料をお送りします');
+  await expect(page.locator('#dash-commitments')).not.toContainText('資料をお送りします');
 
   // ---- next meeting with the same customer, created in the UI
   await page.goto(`/w/${ws.wsId}/meetings/new`);
@@ -75,5 +75,15 @@ test('my commitment becomes overdue and shows up in the next brief', async ({ pa
   await expect(page.locator('#brief-theirCommitments')).toHaveCount(0);
   // the brief cites where the promise was made (link to the source meeting's transcript)
   await expect(mine.locator('a.source-link')).toHaveAttribute('href', new RegExp(`/meetings/${m1.id}/transcript`));
+
+  // the promise can be rescheduled from the ledger (「期限変更」): it is no longer overdue
+  await page.goto(`/w/${ws.wsId}/ledger?tab=commitments&direction=mine`);
+  const row = page.locator('ul.items > li').filter({ hasText: '資料をお送りします' });
+  await expect(row).toContainText('期限を過ぎています');
+  await row.getByRole('button', { name: '「資料をお送りします」の期限を変更' }).click();
+  await row.getByLabel('期限').fill(tokyoDate(7));
+  await row.getByRole('button', { name: '保存', exact: true }).click();
+  await expect(row).not.toContainText('期限を過ぎています');
+  expect(await ws.get(`/commitments/${mapped.id}`)).toMatchObject({ dueDate: tokyoDate(7), overdue: false, status: 'open' });
   expect(errors).toEqual([]);
 });

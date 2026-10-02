@@ -1,5 +1,5 @@
 import { useState, type FormEvent } from 'react';
-import { Navigate, useNavigate, useSearchParams } from 'react-router-dom';
+import { Link, Navigate, useNavigate, useSearchParams } from 'react-router-dom';
 import { Alert, Button, TextField } from '../components/ui';
 import { useI18n } from '../i18n';
 import { useSession } from '../state/session';
@@ -54,6 +54,11 @@ export function LoginPage() {
           {t('auth.login')}
         </Button>
         <p className="field-hint">{t('auth.inviteHint')}</p>
+        {setup?.allowSignup && (
+          <p className="field-hint">
+            {t('signup.noAccount')} <Link to="/signup">{t('signup.link')}</Link>
+          </p>
+        )}
       </form>
     </AuthLayout>
   );

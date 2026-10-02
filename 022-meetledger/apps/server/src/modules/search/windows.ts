@@ -128,7 +128,7 @@ export class WindowPlanner {
   }
 }
 
-/** Is `tsvector @@ tsquery` leakproof here (a DBA may mark it so)? Then GIN indexes are usable under RLS. */
+/** Is `tsvector @@ tsquery` leakproof here (a DBA may mark it so)? Then GIN indexes are usable under RLS. Cached 1 min. */
 let ginCache: { at: number; value: boolean } | null = null;
 let ginOverride: boolean | null = null;
 export function setGinOverride(v: boolean | null) {
@@ -136,8 +136,115 @@ export function setGinOverride(v: boolean | null) {
 }
 export async function ginUsable(db: Db): Promise<boolean> {
   if (ginOverride !== null) return ginOverride;
-  if (ginCache && Date.now() - ginCache.at < 10 * 60_000) return ginCache.value;
+  if (ginCache && Date.now() - ginCache.at < 60_000) return ginCache.value;
   const r = await one<{ lp: boolean }>(db, "SELECT proleakproof AS lp FROM pg_proc WHERE oid = 'ts_match_vq(tsvector,tsquery)'::regprocedure");
   ginCache = { at: Date.now(), value: !!r?.lp };
   return ginCache.value;
+}
+
+/**
+ * Text match used INSIDE window queries. The function-call form `ts_match_vq(col, q)` is semantically `col @@ q` but is
+ * never turned into a GIN index condition, so the planner keeps the btree (meeting_id) driven plan even when a DBA has
+ * made `@@` leakproof (a GIN bitmap over every match of a common term would be far slower than scanning one window).
+ */
+export function windowMatch(col: string, q: string): string {
+  return `ts_match_vq(${col}, ${q})`;
+}
+
+/** Thresholds of the hybrid decision (exact GIN path vs. recency windows). */
+export const EXACT_CAP = 2000;
+/** Above this planner estimate a term is treated as common without executing the count probe. */
+export const ESTIMATE_COMMON = 20000;
+
+export type SearchPath = 'exact' | 'window' | 'probe';
+
+/**
+ * Hybrid decision. Without a usable GIN (default: `@@` not leakproof under RLS) always 'window'.
+ * With GIN: a planner estimate above ESTIMATE_COMMON -> 'window' (no probe); otherwise 'probe', and after the probe
+ * 'exact' only when every branch has at most EXACT_CAP raw matches (complete results), else 'window'.
+ */
+export function decideSearchPath(i: { gin: boolean; estimate?: number | null; probe?: number[] | null; probeTimedOut?: boolean }): SearchPath {
+  if (!i.gin) return 'window';
+  if (i.probeTimedOut) return 'window';
+  if (i.probe) return i.probe.every((n) => n <= EXACT_CAP) ? 'exact' : 'window';
+  if (i.estimate != null && i.estimate > ESTIMATE_COMMON) return 'window';
+  return 'probe';
+}
+
+/**
+ * Upper bound of matches for a search query: per-lexeme planner estimates combined as min within a phrase / across
+ * AND-ed terms (+ legacy alternative). PostgreSQL multiplies phrase lexeme selectivities as if independent, which
+ * underestimates phrases of correlated bigrams (研修の日程 -> 33 rows estimated vs ~430k actual), so we bound instead.
+ * A lexeme that is not among the column's most-common elements gets PostgreSQL's DEFAULT estimate (the same value as
+ * for an absent lexeme); such a lexeme may be rare, so it bounds the term at 0 (-> the cheap, time-guarded probe decides).
+ */
+export async function estimateUpperBound(db: Db, table: 'transcript_segments' | 'search_docs', terms: { phrase: { literal: string }[]; legacy: { literal: string } | null }[]): Promise<number | null> {
+  if (!terms.length) return 0;
+  const cache = new Map<string, number | null>();
+  const est = async (lit: string) => {
+    if (!cache.has(lit)) cache.set(lit, await estimateMatches(db, table, lit));
+    return cache.get(lit)!;
+  };
+  const unknown = await est(ABSENT_LEXEME);
+  let bound = Infinity;
+  for (const t of terms.slice(0, 8)) {
+    let phraseMin = Infinity;
+    for (const l of t.phrase.slice(0, 8)) {
+      const e = await est(l.literal);
+      if (e == null) return null;
+      phraseMin = Math.min(phraseMin, unknown != null && e <= unknown ? 0 : e);
+    }
+    let legacy = 0;
+    if (t.legacy) {
+      const e = await est(t.legacy.literal);
+      if (e == null) return null;
+      legacy = unknown != null && e <= unknown ? 0 : e;
+    }
+    bound = Math.min(bound, phraseMin + legacy);
+  }
+  return Number.isFinite(bound) ? bound : null;
+}
+
+/** A lexeme that never occurs: its estimate is PostgreSQL's default for lexemes outside the most-common elements. */
+export const ABSENT_LEXEME = "'zq0x9absentlexeme7v'";
+
+/** Probe timeout: a probe that cannot finish this fast means "many matches" -> windows. */
+export const PROBE_TIMEOUT_MS = 150;
+
+/**
+ * Counts raw GIN matches (capped at EXACT_CAP + 1) per branch under a short statement timeout (savepoint-protected).
+ * Returns null when the probe timed out (= common term).
+ */
+export async function probeMatches(db: Db, tsq: string, workspaceId: string, want: { seg: boolean; doc: boolean }): Promise<number[] | null> {
+  const prev = (await one<{ v: string }>(db, "SELECT current_setting('statement_timeout') AS v"))?.v ?? '0';
+  await db.query('SAVEPOINT ml_search_probe');
+  try {
+    await db.query("SELECT set_config('statement_timeout', $1, true)", [`${PROBE_TIMEOUT_MS}ms`]);
+    const r = await one<{ seg: number; doc: number }>(
+      db,
+      `SELECT ${want.seg ? `(SELECT count(*) FROM (SELECT 1 FROM transcript_segments s WHERE s.tsv @@ $1::tsquery LIMIT ${EXACT_CAP + 1}) a)::int` : '0'} AS seg,
+              ${want.doc ? `(SELECT count(*) FROM (SELECT 1 FROM search_docs d WHERE d.workspace_id = $2 AND d.tsv @@ $1::tsquery LIMIT ${EXACT_CAP + 1}) b)::int` : '0'} AS doc`,
+      [tsq, workspaceId],
+    );
+    await db.query("SELECT set_config('statement_timeout', $1, true)", [prev]);
+    await db.query('RELEASE SAVEPOINT ml_search_probe');
+    return [r?.seg ?? Infinity, r?.doc ?? Infinity];
+  } catch (e: any) {
+    await db.query('ROLLBACK TO SAVEPOINT ml_search_probe'); // also reverts the statement_timeout change
+    await db.query('RELEASE SAVEPOINT ml_search_probe');
+    if (e?.code === '57014') return null; // query_canceled (timeout)
+    throw e;
+  }
+}
+
+/** Planner row estimate for `table.tsv @@ q` (EXPLAIN only, nothing is executed). */
+export async function estimateMatches(db: Db, table: 'transcript_segments' | 'search_docs', tsq: string): Promise<number | null> {
+  try {
+    const r = await one<{ 'QUERY PLAN': any }>(db, `EXPLAIN (FORMAT JSON) SELECT 1 FROM ${table} x WHERE x.tsv @@ $1::tsquery`, [tsq]);
+    const plan = r?.['QUERY PLAN'];
+    const root = Array.isArray(plan) ? plan[0]?.Plan : null;
+    return typeof root?.['Plan Rows'] === 'number' ? root['Plan Rows'] : null;
+  } catch {
+    return null;
+  }
 }

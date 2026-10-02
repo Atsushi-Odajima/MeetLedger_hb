@@ -1,7 +1,7 @@
 import { useState, type FormEvent } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { Alert, Async, Badge, Button, Card, Checkbox, Dialog, EmptyState, SelectField, TextArea, TextField } from '../../components/ui';
-import { useI18n } from '../../i18n';
+import { useI18n, type MsgKey } from '../../i18n';
 import { useWs } from '../../state/workspace';
 import { useToast } from '../../state/toast';
 import { api, listOf } from '../../lib/api';
@@ -259,30 +259,42 @@ function Webhooks() {
   );
 }
 
-type WriteProvider = 'slack' | 'webhook' | 'hubspot';
+type WriteKind = 'slack_webhook' | 'slack_bot' | 'hubspot' | 'webhook' | 'gmail';
 
-function WriteConnectorForm({ onCreated }: { onCreated(): void }) {
+/** Admin-only registration of shared write connectors. Credentials are write-only: sent once, stored encrypted, never shown again. */
+function WriteConnectorForm({ onCreated, gmailAvailable }: { onCreated(): void; gmailAvailable: boolean }) {
   const { t } = useI18n();
   const toast = useToast();
   const { a } = useWs();
-  const [provider, setProvider] = useState<WriteProvider>('slack');
+  const [kind, setKind] = useState<WriteKind>('slack_webhook');
   const [name, setName] = useState('');
   const [secret, setSecret] = useState('');
+  const [channel, setChannel] = useState('');
   const [busy, setBusy] = useState(false);
+  const [signing, setSigning] = useState<{ value: string; header?: string } | null>(null);
+  const reset = () => {
+    setSecret('');
+    setChannel('');
+    setName('');
+  };
   const submit = async (e: FormEvent) => {
     e.preventDefault();
+    if (kind === 'gmail') return;
     setBusy(true);
+    setSigning(null);
     try {
       const displayName = name.trim() || undefined;
       const body =
-        provider === 'slack'
-          ? { provider, mode: 'incoming_webhook', webhookUrl: secret.trim(), displayName }
-          : provider === 'hubspot'
-            ? { provider, accessToken: secret.trim(), displayName }
-            : { provider, url: secret.trim(), displayName };
-      await api.post(a('/connectors'), body);
-      setSecret('');
-      setName('');
+        kind === 'slack_webhook'
+          ? { provider: 'slack', mode: 'incoming_webhook', webhookUrl: secret.trim(), channelLabel: channel.trim() || undefined, displayName }
+          : kind === 'slack_bot'
+            ? { provider: 'slack', mode: 'bot', botToken: secret.trim(), defaultChannel: channel.trim() || undefined, displayName }
+            : kind === 'hubspot'
+              ? { provider: 'hubspot', accessToken: secret.trim(), displayName }
+              : { provider: 'webhook', url: secret.trim(), displayName };
+      const r = await api.post<{ signingSecret?: string; signatureHeader?: string }>(a('/connectors'), body);
+      reset();
+      if (r.signingSecret) setSigning({ value: r.signingSecret, header: r.signatureHeader });
       toast.success(t('connectors.writeCreated'));
       onCreated();
     } catch (err) {
@@ -291,35 +303,97 @@ function WriteConnectorForm({ onCreated }: { onCreated(): void }) {
       setBusy(false);
     }
   };
+  const connectGmail = async () => {
+    setBusy(true);
+    try {
+      const r = await api.get<{ authorizeUrl: string }>(a('/connectors/gmail/start'));
+      const u = new URL(r.authorizeUrl);
+      if (u.protocol !== 'https:') throw new Error('Invalid authorize URL');
+      window.location.assign(u.toString());
+    } catch (err) {
+      toast.error(err);
+      setBusy(false);
+    }
+  };
+  const secretLabel: Record<Exclude<WriteKind, 'gmail'>, MsgKey> = {
+    slack_webhook: 'connectors.slackWebhookUrl',
+    slack_bot: 'connectors.slackBotToken',
+    hubspot: 'connectors.hubspotToken',
+    webhook: 'connectors.webhookUrl',
+  };
   return (
-    <Card title={t('connectors.writeTitle')}>
-      <form className="stack" onSubmit={submit}>
+    <Card title={t('connectors.writeTitle')} id="write-connectors">
+      <form className="stack" onSubmit={submit} autoComplete="off">
         <p className="field-hint">{t('connectors.writeHint')}</p>
         <div className="grid-2">
           <SelectField
             label={t('connectors.writeProvider')}
-            value={provider}
-            onChange={(e) => setProvider(e.target.value as WriteProvider)}
+            value={kind}
+            onChange={(e) => {
+              setKind(e.target.value as WriteKind);
+              setSecret('');
+              setChannel('');
+            }}
             options={[
-              { value: 'slack', label: t('connectors.slackWebhook') },
-              { value: 'webhook', label: t('connectorProvider.webhook') },
+              { value: 'slack_webhook', label: t('connectors.slackWebhook') },
+              { value: 'slack_bot', label: t('connectors.slackBot') },
+              { value: 'gmail', label: t('connectors.gmailDraft') },
               { value: 'hubspot', label: t('connectorProvider.hubspot') },
+              { value: 'webhook', label: t('connectors.genericWebhook') },
             ]}
           />
-          <TextField label={t('connectors.displayName')} value={name} onChange={(e) => setName(e.target.value)} maxLength={100} />
+          {kind !== 'gmail' && <TextField label={t('connectors.displayName')} value={name} onChange={(e) => setName(e.target.value)} maxLength={100} />}
         </div>
-        <TextField
-          label={provider === 'slack' ? t('connectors.slackWebhookUrl') : provider === 'hubspot' ? t('connectors.hubspotToken') : t('webhooks.url')}
-          type={provider === 'hubspot' ? 'password' : 'url'}
-          value={secret}
-          onChange={(e) => setSecret(e.target.value)}
-          required
-          autoComplete="off"
-          hint={t('connectors.secretStored')}
-        />
-        <Button type="submit" loading={busy} disabled={!secret.trim()}>
-          {t('connectors.writeAdd')}
-        </Button>
+        {kind === 'gmail' ? (
+          <div className="stack">
+            <p className="field-hint">{t('connectors.gmailHint')}</p>
+            <div>
+              <Button type="button" icon="mail" onClick={connectGmail} loading={busy} disabled={!gmailAvailable}>
+                {t('connectors.gmailConnect')}
+              </Button>
+            </div>
+            {!gmailAvailable && <p className="field-hint">{t('connectors.notConfigured')}</p>}
+          </div>
+        ) : (
+          <>
+            <TextField
+              label={t(secretLabel[kind])}
+              type={kind === 'webhook' ? 'url' : 'password'}
+              value={secret}
+              onChange={(e) => setSecret(e.target.value)}
+              required
+              autoComplete="off"
+              placeholder={kind === 'slack_webhook' ? 'https://hooks.slack.com/services/…' : kind === 'slack_bot' ? 'xoxb-…' : kind === 'webhook' ? 'https://example.com/hooks/meetledger' : undefined}
+              hint={kind === 'webhook' ? t('connectors.webhookHint') : t('connectors.secretStored')}
+            />
+            {(kind === 'slack_webhook' || kind === 'slack_bot') && (
+              <TextField
+                label={kind === 'slack_webhook' ? t('connectors.slackChannelLabel') : t('connectors.slackDefaultChannel')}
+                value={channel}
+                onChange={(e) => setChannel(e.target.value)}
+                maxLength={80}
+                placeholder="#sales"
+                hint={kind === 'slack_webhook' ? t('connectors.slackChannelLabelHint') : t('connectors.slackDefaultChannelHint')}
+              />
+            )}
+            <div>
+              <Button type="submit" loading={busy} disabled={!secret.trim()}>
+                {t('connectors.writeAdd')}
+              </Button>
+            </div>
+          </>
+        )}
+        {signing && (
+          <Alert tone="success" title={t('webhooks.secretOnce')}>
+            <div className="copy-row">
+              <code className="code-inline">{signing.value}</code>
+              <Button size="sm" icon="copy" onClick={() => copyText(signing.value).then((ok) => ok && toast.success(t('common.copied')))}>
+                {t('common.copy')}
+              </Button>
+            </div>
+            {signing.header && <p className="field-hint">{t('webhooks.signatureHeader', { header: signing.header })}</p>}
+          </Alert>
+        )}
       </form>
     </Card>
   );
@@ -437,7 +511,7 @@ export function ConnectorsSettings() {
         {(available.google_calendar === false || available.microsoft_calendar === false) && <p className="field-hint">{t('connectors.notConfigured')}</p>}
       </Card>
       <IcsCard onPreview={setPreview} />
-      {admin && <WriteConnectorForm onCreated={state.reload} />}
+      {admin && <WriteConnectorForm onCreated={state.reload} gmailAvailable={available.gmail !== false} />}
       <Webhooks />
       <EventPreview preview={preview} onClose={() => setPreview(null)} onImported={state.reload} />
     </div>

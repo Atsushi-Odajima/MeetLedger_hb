@@ -37,6 +37,27 @@ function termPhrase(term: string): string | null {
   return p;
 }
 
+export interface QueryLexeme {
+  /** single-lexeme tsquery literal, e.g. '価格' or '月':* */
+  literal: string;
+}
+/**
+ * Structure of queryTsq(q) for selectivity bounds: AND of terms; each term matches only rows containing ALL of its
+ * phrase lexemes, OR its legacy single lexeme. Upper bound of matches = min over terms of (min(phrase) + legacy).
+ */
+export function queryTerms(q: string): { phrase: QueryLexeme[]; legacy: QueryLexeme | null }[] {
+  const out: { phrase: QueryLexeme[]; legacy: QueryLexeme | null }[] = [];
+  for (const term of q.split(/[\s　]+/).filter(Boolean).slice(0, 16)) {
+    const toks = tokenize(splitScripts(term), 64);
+    if (!toks.length) continue;
+    const phrase = toks.map((tok) => ({ literal: tok.single ? `'${esc(tok.t)}':*` : `'${esc(tok.t)}'` }));
+    const legacyLit = toTsqueryLiteral(term);
+    const legacy = legacyLit && !/[&|<!()]/.test(legacyLit) && !phrase.some((x) => x.literal === legacyLit) ? { literal: legacyLit } : null;
+    out.push({ phrase, legacy });
+  }
+  return out;
+}
+
 /**
  * User query -> tsquery literal. Whitespace separated terms are AND-ed; each term is a phrase of its tokens
  * (so "10月公開" must appear contiguously). Returns null when nothing searchable remains.

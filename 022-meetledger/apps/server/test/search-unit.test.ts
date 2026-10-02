@@ -142,3 +142,41 @@ describe('embedding providers', () => {
     expect(embeddingDecision(noOptIn, { ...cfg, EMBEDDING_PROVIDER: 'openai' })).toMatchObject({ provider: 'local-hash' });
   });
 });
+
+describe('hybrid search path decision (exact GIN path vs recency windows)', () => {
+  it('uses windows without a usable GIN, exact only for rare terms when GIN is usable', async () => {
+    const { decideSearchPath, EXACT_CAP, ESTIMATE_COMMON, windowMatch } = await import('../src/modules/search/windows');
+    expect(decideSearchPath({ gin: false })).toBe('window');
+    expect(decideSearchPath({ gin: false, probe: [0, 0] })).toBe('window');
+    expect(decideSearchPath({ gin: true })).toBe('probe');
+    expect(decideSearchPath({ gin: true, estimate: ESTIMATE_COMMON + 1 })).toBe('window'); // common: no probe executed
+    expect(decideSearchPath({ gin: true, estimate: 10 })).toBe('probe');
+    expect(decideSearchPath({ gin: true, probe: [EXACT_CAP, 3] })).toBe('exact');
+    expect(decideSearchPath({ gin: true, probe: [EXACT_CAP + 1, 0] })).toBe('window');
+    expect(decideSearchPath({ gin: true, probe: [0, EXACT_CAP + 1] })).toBe('window');
+    // window queries use the non-indexable function form so a leakproof `@@` cannot pull in a GIN plan
+    expect(windowMatch('s.tsv', '$3::tsquery')).toBe('ts_match_vq(s.tsv, $3::tsquery)');
+  });
+});
+
+describe('match-count upper bound for the hybrid decision', () => {
+  it('bounds phrases by their rarest lexeme (planner multiplies correlated bigrams) and AND-ed terms by the rarest term', async () => {
+    const { estimateUpperBound } = await import('../src/modules/search/windows');
+    const { queryTerms } = await import('../src/modules/search/text');
+    const rowsFor: Record<string, number> = { "'研修'": 430000, "'修の'": 430000, "'の日'": 900000, "'日程'": 430000, "'meeting'": 0, "'4242'": 3 };
+    const db: any = { query: async (_sql: string, params: string[]) => ({ rows: [{ 'QUERY PLAN': [{ Plan: { 'Plan Rows': rowsFor[params[0]] ?? 1 } }] }] }) };
+    expect(queryTerms('研修の日程')).toEqual([{ phrase: ["'研修'", "'修の'", "'の日'", "'日程'"].map((literal) => ({ literal })), legacy: null }]);
+    expect(await estimateUpperBound(db, 'transcript_segments', queryTerms('研修の日程'))).toBe(430000); // -> window, no probe
+    expect(await estimateUpperBound(db, 'transcript_segments', queryTerms('Meeting 4242'))).toBe(0); // -> probe -> exact
+    // a lexeme outside the most-common elements gets the same default estimate as an absent lexeme -> may be rare -> probe
+    const { ABSENT_LEXEME, decideSearchPath } = await import('../src/modules/search/windows');
+    rowsFor[ABSENT_LEXEME] = 50000;
+    rowsFor["'存在'"] = 50000;
+    rowsFor["'在し'"] = 50000;
+    expect(await estimateUpperBound(db, 'transcript_segments', queryTerms('存在'))).toBe(0);
+    expect(await estimateUpperBound(db, 'transcript_segments', queryTerms('研修の日程'))).toBe(430000);
+    expect(decideSearchPath({ gin: true, probe: null, probeTimedOut: true })).toBe('window');
+    const failing: any = { query: async () => { throw new Error('x'); } };
+    expect(await estimateUpperBound(failing, 'search_docs', queryTerms('価格'))).toBeNull(); // unknown -> probe decides
+  });
+});

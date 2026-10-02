@@ -31,6 +31,8 @@ interface BriefDto {
   personNotes?: { personId: string; name: string; organization: string | null; roleTitle: string | null; profileNote: string | null; notes: { id: string; body: string; author: string | null; createdAt: string | null }[] }[];
   recentChanges?: DecisionChangeDto[];
   more?: { decisions?: number; actions?: number; commitments?: number; questions?: number };
+  /** Exact totals (lists are capped). */
+  counts?: Partial<Record<'decisions' | 'actions' | 'commitments' | 'commitmentsMine' | 'commitmentsTheirs' | 'commitmentsOthers' | 'questions', number>>;
 }
 
 function Block({ titleKey, n, children }: { titleKey: MsgKey; n: number; children: ReactNode }) {
@@ -81,6 +83,8 @@ export function BriefTab() {
           const changes = b.recentChanges ?? [];
           const others = (b.participants ?? []).filter((x) => !x.isMe);
           const more = (n?: number) => (n ? <p className="field-hint">{t('brief.more', { n })}</p> : null);
+          const cnt = (k: keyof NonNullable<BriefDto['counts']>, shown: number) => Math.max(shown, b.counts?.[k] ?? 0);
+          const commitmentMore = (k: 'commitmentsMine' | 'commitmentsTheirs' | 'commitmentsOthers', shown: number) => (b.counts?.[k] !== undefined ? more(Math.max(0, (b.counts[k] ?? 0) - shown)) : null);
           return (
             <>
               {b.firstMeeting && (
@@ -100,7 +104,7 @@ export function BriefTab() {
                   </ul>
                 </Card>
               )}
-              <Block titleKey="brief.openActions" n={(b.openActions ?? []).length}>
+              <Block titleKey="brief.openActions" n={cnt('actions', (b.openActions ?? []).length)}>
                 <ul className="items">
                   {(b.openActions ?? []).map((x) => (
                     <ActionItem key={x.id} action={x} />
@@ -108,29 +112,31 @@ export function BriefTab() {
                 </ul>
                 {more(b.more?.actions)}
               </Block>
-              <Block titleKey="brief.myCommitments" n={mine.length}>
+              <Block titleKey="brief.myCommitments" n={cnt('commitmentsMine', mine.length)}>
                 <ul className="items">
                   {mine.map((x) => (
                     <CommitmentItem key={x.id} c={x} />
                   ))}
                 </ul>
+                {commitmentMore('commitmentsMine', mine.length)}
               </Block>
-              <Block titleKey="brief.theirCommitments" n={theirs.length}>
+              <Block titleKey="brief.theirCommitments" n={cnt('commitmentsTheirs', theirs.length)}>
                 <ul className="items">
                   {theirs.map((x) => (
                     <CommitmentItem key={x.id} c={x} />
                   ))}
                 </ul>
-                {more(b.more?.commitments)}
+                {b.counts?.commitmentsTheirs !== undefined ? commitmentMore('commitmentsTheirs', theirs.length) : more(b.more?.commitments)}
               </Block>
-              <Block titleKey="brief.otherCommitments" n={otherCommitments.length}>
+              <Block titleKey="brief.otherCommitments" n={cnt('commitmentsOthers', otherCommitments.length)}>
                 <ul className="items">
                   {otherCommitments.map((x) => (
                     <CommitmentItem key={x.id} c={x} />
                   ))}
                 </ul>
+                {commitmentMore('commitmentsOthers', otherCommitments.length)}
               </Block>
-              <Block titleKey="brief.openQuestions" n={(b.openQuestions ?? []).length}>
+              <Block titleKey="brief.openQuestions" n={cnt('questions', (b.openQuestions ?? []).length)}>
                 <ul className="items">
                   {(b.openQuestions ?? []).map((x) => (
                     <QuestionItem key={x.id} q={x} />
@@ -138,7 +144,7 @@ export function BriefTab() {
                 </ul>
                 {more(b.more?.questions)}
               </Block>
-              <Block titleKey="brief.decisions" n={decisions.length}>
+              <Block titleKey="brief.decisions" n={cnt('decisions', decisions.length)}>
                 <ul className="items">
                   {decisions.map((x) => (
                     <DecisionItem key={x.id} decision={x} />

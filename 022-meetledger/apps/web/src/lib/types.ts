@@ -181,7 +181,14 @@ export interface DashboardDto {
   overdue?: Grouped<ActionDto | CommitmentDto>;
   decisionsChanged?: (DecisionDto | DecisionChangeDto)[];
   openQuestions?: QuestionDto[];
-  counts?: Record<string, number>;
+  counts?: Partial<Record<'today' | 'upcoming' | 'needsReview' | 'myActions' | 'myCommitments' | 'waitingOnOthers' | 'overdue' | 'decisionsChanged' | 'openQuestions', number>> &
+    Record<string, number>;
+  /** A count equal to countCap means "countCap or more". */
+  countCap?: number;
+  /** Items per section returned by the server. */
+  limit?: number;
+  /** needsReview / waitingOnOthers / openQuestions cover the user's meetings of the last N days. */
+  windowDays?: number;
 }
 
 /** Flattens `T[] | {actions, commitments}` into one list. */

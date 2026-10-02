@@ -1,13 +1,30 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import type { ActionDto, CommitmentDto, ContradictionDto, DecisionDto, LedgerEntityType, QuestionDto, SourceRef } from '@meetledger/shared';
-import { AiBadge, Alert, Badge, Button, CandidateBadge, Card, CachedNotice, EmptyState, ErrorView, Loading, PageHeader, SelectField, Tabs, TextField, Checkbox } from '../components/ui';
+import {
+  AiBadge,
+  Alert,
+  Badge,
+  Button,
+  CandidateBadge,
+  Card,
+  CachedNotice,
+  EmptyState,
+  ErrorView,
+  LoadMore,
+  Loading,
+  PageHeader,
+  SelectField,
+  Tabs,
+  TextField,
+  Checkbox,
+} from '../components/ui';
 import { DecisionItem, SourceLink, personName, usePeople } from '../components/ledger';
 import { useI18n, type MsgKey } from '../i18n';
 import { useWs } from '../state/workspace';
 import { useToast } from '../state/toast';
-import { api, listOf, qs } from '../lib/api';
-import { useApi } from '../lib/hooks';
+import { api, ApiError, listOf, qs } from '../lib/api';
+import { useApi, withCursor } from '../lib/hooks';
 
 type AnyItem = DecisionDto | ActionDto | CommitmentDto | QuestionDto;
 /** Union of the optional fields of all four candidate types (for reading without narrowing). */
@@ -64,9 +81,16 @@ function deriveFlags(type: LedgerEntityType, item: AnyItem, given?: Flags): Flag
 }
 
 /** Accepts the different shapes the review endpoint may return. */
-export function normalizeReview(r: ReviewResponse | AnyItem[] | null | undefined): { cards: ReviewCard[]; contradictions: ContradictionDto[]; speakers: NonNullable<ReviewResponse['unmappedSpeakers']>; participants: NonNullable<ReviewResponse['unlinkedParticipants']> } {
+export function normalizeReview(r: ReviewResponse | AnyItem[] | null | undefined): {
+  cards: ReviewCard[];
+  contradictions: ContradictionDto[];
+  speakers: NonNullable<ReviewResponse['unmappedSpeakers']>;
+  participants: NonNullable<ReviewResponse['unlinkedParticipants']>;
+} {
   const cards: ReviewCard[] = [];
-  const src = (r && !Array.isArray(r) && r.candidates && typeof r.candidates === 'object' && !Array.isArray(r.candidates) ? { ...r, ...(r.candidates as object) } : r) as ReviewResponse | null;
+  const src = (
+    r && !Array.isArray(r) && r.candidates && typeof r.candidates === 'object' && !Array.isArray(r.candidates) ? { ...r, ...(r.candidates as object) } : r
+  ) as ReviewResponse | null;
   const fromItems = src && !Array.isArray(src) ? (src.items ?? (Array.isArray(src.candidates) ? (src.candidates as ReviewResponse['items']) : undefined)) : undefined;
   if (fromItems) {
     for (const x of fromItems) {
@@ -110,7 +134,7 @@ function CandidateCard({ card, onDone }: { card: ReviewCard; onDone(id: string, 
   const inferred = !!(card.flags.assigneeInferred || card.flags.dueInferred);
   const assigneeChanged = assignee !== (it.assigneePersonId ?? '');
   const dueChanged = due !== (it.dueDate ?? '');
-  const explicitlyEdited = editing && ((!card.flags.assigneeInferred || assigneeChanged) && (!card.flags.dueInferred || dueChanged));
+  const explicitlyEdited = editing && (!card.flags.assigneeInferred || assigneeChanged) && (!card.flags.dueInferred || dueChanged);
   const needsConfirm = inferred && !explicitlyEdited;
   const canWrite = can('member');
 
@@ -167,12 +191,30 @@ function CandidateCard({ card, onDone }: { card: ReviewCard; onDone(id: string, 
                 value={assignee}
                 onChange={(e) => setAssignee(e.target.value)}
                 className={card.flags.assigneeInferred && !assigneeChanged ? 'inferred-field' : undefined}
-                options={[{ value: '', label: it.assigneeText ? `${t('action.noAssignee')}（${it.assigneeText}）` : t('action.noAssignee') }, ...people.map((p) => ({ value: p.id, label: p.name }))]}
+                options={[
+                  { value: '', label: it.assigneeText ? `${t('action.noAssignee')}（${it.assigneeText}）` : t('action.noAssignee') },
+                  ...people.map((p) => ({ value: p.id, label: p.name })),
+                ]}
               />
-              <TextField label={t('action.due')} type="date" value={due} onChange={(e) => setDue(e.target.value)} className={card.flags.dueInferred && !dueChanged ? 'inferred-field' : undefined} hint={it.dueText ? t('review.dueText', { text: it.dueText }) : undefined} />
+              <TextField
+                label={t('action.due')}
+                type="date"
+                value={due}
+                onChange={(e) => setDue(e.target.value)}
+                className={card.flags.dueInferred && !dueChanged ? 'inferred-field' : undefined}
+                hint={it.dueText ? t('review.dueText', { text: it.dueText }) : undefined}
+              />
             </div>
           )}
-          {card.type === 'commitment' && <TextField label={t('action.due')} type="date" value={due} onChange={(e) => setDue(e.target.value)} className={card.flags.dueInferred && !dueChanged ? 'inferred-field' : undefined} />}
+          {card.type === 'commitment' && (
+            <TextField
+              label={t('action.due')}
+              type="date"
+              value={due}
+              onChange={(e) => setDue(e.target.value)}
+              className={card.flags.dueInferred && !dueChanged ? 'inferred-field' : undefined}
+            />
+          )}
         </div>
       ) : (
         <>
@@ -302,23 +344,85 @@ function ContradictionCard({ c, onDone }: { c: ContradictionDto; onDone(id: stri
 }
 
 type TabId = 'all' | LedgerEntityType | 'changes' | 'people';
+type CountKey = LedgerEntityType | 'contradiction';
+
+interface PagedReview extends ReviewResponse {
+  counts?: Partial<Record<CountKey, number>>;
+  total?: number;
+  nextCursor?: string | null;
+  groups?: { meetingId: string | null; meetingTitle: string | null; total?: number }[];
+}
+
+/** Appends a further page (more meetings) to the loaded inbox, de-duplicating by id. */
+function mergePages(a: PagedReview, b: PagedReview): PagedReview {
+  const uniq = <T,>(x: T[] = [], y: T[] = [], key: (v: T) => string = (v) => (v as { id?: string }).id ?? '') => {
+    const seen = new Set(x.map(key));
+    return [...x, ...y.filter((v) => !seen.has(key(v)))];
+  };
+  return {
+    ...a,
+    items: uniq(a.items, b.items, (v) => `${v.type}:${(v.item as { id?: string } | undefined)?.id ?? ''}`),
+    contradictions: uniq(a.contradictions, b.contradictions),
+    unmappedSpeakers: uniq(a.unmappedSpeakers, b.unmappedSpeakers),
+    unlinkedParticipants: uniq(a.unlinkedParticipants, b.unlinkedParticipants),
+    groups: [...(a.groups ?? []), ...(b.groups ?? [])],
+    nextCursor: b.nextCursor ?? null,
+  };
+}
 
 export function ReviewInboxPage() {
   const { t } = useI18n();
   const { a, p } = useWs();
   const [params, setParams] = useSearchParams();
   const meetingId = params.get('meetingId') ?? '';
-  const state = useApi<ReviewResponse>(a(`/review${qs({ meetingId })}`));
+  const path = a(`/review${qs({ meetingId })}`);
+  const state = useApi<PagedReview>(path);
+  const [more, setMore] = useState<PagedReview | null>(null);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [moreError, setMoreError] = useState<unknown>(null);
   const [tab, setTab] = useState<TabId>('all');
-  const [done, setDone] = useState<Set<string>>(new Set());
-  useEffect(() => setDone(new Set()), [state.data]);
-  const data = useMemo(() => normalizeReview(state.data), [state.data]);
+  const [done, setDone] = useState<Map<string, CountKey>>(new Map());
+  useEffect(() => {
+    setDone(new Map());
+    setMore(null);
+    setMoreError(null);
+  }, [state.data]);
+  const page = useMemo(() => (state.data && more ? mergePages(state.data, more) : state.data), [state.data, more]);
+  const data = useMemo(() => normalizeReview(page), [page]);
+  const cursor = (more ?? state.data)?.nextCursor ?? null;
+  const loadMore = async () => {
+    if (!cursor || !state.data) return;
+    setLoadingMore(true);
+    setMoreError(null);
+    try {
+      const r = await api.get<PagedReview>(withCursor(path, cursor));
+      setMore((cur) => (cur ? mergePages(cur, r) : { ...r, items: r.items ?? [] }));
+    } catch (e) {
+      setMoreError(e);
+    } finally {
+      setLoadingMore(false);
+    }
+  };
   const cards = data.cards.filter((c) => !done.has(c.item.id));
   const contradictions = data.contradictions.filter((c) => !done.has(c.id));
-  const count = (type: LedgerEntityType) => cards.filter((c) => c.type === type).length;
+  const serverCounts = state.data?.counts;
+  const doneOf = (k: CountKey) => [...done.values()].filter((v) => v === k).length;
+  // Server totals cover the whole inbox (not just the loaded meetings); fall back to the loaded cards.
+  const count = (k: CountKey) =>
+    typeof serverCounts?.[k] === 'number'
+      ? Math.max(0, (serverCounts[k] as number) - doneOf(k))
+      : k === 'contradiction'
+        ? contradictions.length
+        : cards.filter((c) => c.type === k).length;
+  const itemTotal = count('decision') + count('action') + count('commitment') + count('question');
   const shown = tab === 'all' ? cards : tab === 'changes' || tab === 'people' ? [] : cards.filter((c) => c.type === tab);
-  const markDone = (id: string) => setDone((s) => new Set(s).add(id));
-  const total = cards.length + contradictions.length;
+  const markDone = (id: string, type: CountKey) => setDone((s) => new Map(s).set(id, type));
+  const total = itemTotal + count('contradiction');
+  const notFound = state.error instanceof ApiError && state.error.status === 404 && !!meetingId;
+  const clearFilter = () => {
+    params.delete('meetingId');
+    setParams(params);
+  };
 
   return (
     <>
@@ -326,21 +430,24 @@ export function ReviewInboxPage() {
       {meetingId && (
         <p className="filter-chip">
           {t('review.filteredByMeeting')}{' '}
-          <Button
-            size="sm"
-            variant="ghost"
-            icon="x"
-            onClick={() => {
-              params.delete('meetingId');
-              setParams(params);
-            }}
-          >
+          <Button size="sm" variant="ghost" icon="x" onClick={clearFilter}>
             {t('common.clearFilter')}
           </Button>
         </p>
       )}
       {state.loading && !state.data ? (
         <Loading />
+      ) : notFound ? (
+        <EmptyState
+          icon="inbox"
+          title={t('review.meetingNotFound')}
+          body={t('review.meetingNotFoundBody')}
+          action={
+            <Button variant="primary" onClick={clearFilter}>
+              {t('review.showAll')}
+            </Button>
+          }
+        />
       ) : state.error && !state.data ? (
         <ErrorView error={state.error} onRetry={state.reload} />
       ) : (
@@ -351,23 +458,26 @@ export function ReviewInboxPage() {
             active={tab}
             onChange={setTab}
             tabs={[
-              { id: 'all', label: t('common.all'), count: cards.length },
+              { id: 'all', label: t('common.all'), count: itemTotal },
               { id: 'decision', label: t('entityType.decision'), count: count('decision') },
               { id: 'action', label: t('entityType.action'), count: count('action') },
               { id: 'commitment', label: t('entityType.commitment'), count: count('commitment') },
               { id: 'question', label: t('entityType.question'), count: count('question') },
-              { id: 'changes', label: t('review.isChange'), count: contradictions.length },
+              { id: 'changes', label: t('review.isChange'), count: count('contradiction') },
               { id: 'people', label: t('review.peopleTab'), count: data.speakers.length + data.participants.length },
             ]}
           />
           <div role="tabpanel" id={`panel-${tab}`} aria-labelledby={`tab-${tab}`} className="tab-panel">
             {!total && tab !== 'people' && <EmptyState icon="check" title={t('review.empty')} body={t('review.emptyBody')} />}
-            {(tab === 'all' || tab === 'changes') && contradictions.map((c) => <ContradictionCard key={c.id} c={c} onDone={markDone} />)}
+            {(tab === 'all' || tab === 'changes') && contradictions.map((c) => <ContradictionCard key={c.id} c={c} onDone={(id) => markDone(id, 'contradiction')} />)}
             <div className="review-list">
               {shown.map((c) => (
-                <CandidateCard key={`${c.type}-${c.item.id}`} card={c} onDone={markDone} />
+                <CandidateCard key={`${c.type}-${c.item.id}`} card={c} onDone={(id) => markDone(id, c.type)} />
               ))}
             </div>
+            {tab !== 'people' && (cursor || (total > 0 && cards.length + contradictions.length < total)) && (
+              <LoadMore shown={cards.length + contradictions.length} total={total} hasMore={!!cursor} loading={loadingMore} error={moreError} onMore={loadMore} />
+            )}
             {tab === 'people' && (
               <Card title={t('review.peopleTab')}>
                 <p className="field-hint">{t('review.peopleHint')}</p>

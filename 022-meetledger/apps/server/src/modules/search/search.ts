@@ -9,17 +9,27 @@ import { SEARCH_ENTITY_TYPES, type CitationDto, type SearchEntityType } from '@m
 import type { WsCtx } from '../../context';
 import { one, rows, type Db } from '../../db/pool';
 import { badRequest, notFound } from '../../lib/errors';
-import { highlightTerms, makeSnippet, queryTsq } from './text';
+import { highlightTerms, makeSnippet, queryTerms, queryTsq } from './text';
 import { safeTz, zonedStart } from './scope';
-import { ginUsable, nextWindow, personMeetingIds, scopeSql, WindowPlanner, type Cursor, type MeetingScope } from './windows';
+import {
+  decideSearchPath,
+  estimateUpperBound,
+  ginUsable,
+  probeMatches,
+  nextWindow,
+  personMeetingIds,
+  scopeSql,
+  windowMatch,
+  WindowPlanner,
+  type Cursor,
+  type MeetingScope,
+} from './windows';
 
 /**
  * Window tuning. budgetMs: time budget for walking meeting windows (rare terms); common terms are satisfied by the
  * first window. Mutable only for tests.
  */
 export const searchTuning = { budgetMs: 340, firstWindow: 200 };
-/** Exact (complete) path when GIN is usable and a branch has at most this many raw matches. */
-const EXACT_CAP = 2000;
 export const TRUNCATED_HINT_JA = '新しい会議から順に検索しました。より古い会議を検索するには期間（from/to）・Project・人物で絞り込んでください。';
 
 const zDateOrIso = z.union([z.string().regex(/^\d{4}-\d{2}-\d{2}$/), z.string().datetime({ offset: true })]);
@@ -112,16 +122,25 @@ export async function runSearch(db: Db, ctx: WsCtx, q: SearchQuery) {
   let searchedFrom: string | null = null;
   const contentArgs = { workspaceId: ctx.workspaceId, tsq, segTypes, docTypes, personId: q.personId ?? null, now, limit: q.limit };
 
-  // exact path: GIN usable (DBA marked ts_match_vq LEAKPROOF) and the term is rare -> complete results
+  // hybrid: exact (complete) GIN path only when GIN is usable (DBA marked ts_match_vq LEAKPROOF) AND the term is rare;
+  // common terms use recency windows (a GIN bitmap over every match of a common term is slower than one window).
   let exact = false;
-  if (tsq && (await ginUsable(db))) {
-    const pr = await one<{ seg: number; doc: number }>(
-      db,
-      `SELECT (SELECT count(*) FROM (SELECT 1 FROM transcript_segments s WHERE s.tsv @@ $1::tsquery LIMIT ${EXACT_CAP + 1}) a)::int AS seg,
-              (SELECT count(*) FROM (SELECT 1 FROM search_docs d WHERE d.workspace_id = $2 AND d.tsv @@ $1::tsquery LIMIT ${EXACT_CAP + 1}) b)::int AS doc`,
-      [tsq, ctx.workspaceId],
-    );
-    if (pr && pr.seg <= EXACT_CAP && pr.doc <= EXACT_CAP) {
+  let path: string = 'window';
+  if (tsq) {
+    const gin = await ginUsable(db);
+    let decision = decideSearchPath({ gin });
+    if (decision === 'probe') {
+      const terms = queryTerms(q.q!);
+      const seg = segTypes ? await estimateUpperBound(db, 'transcript_segments', terms) : 0;
+      const doc = docTypes.length ? await estimateUpperBound(db, 'search_docs', terms) : 0;
+      decision = decideSearchPath({ gin, estimate: seg == null || doc == null ? null : Math.max(seg, doc) });
+    }
+    if (decision === 'probe') {
+      const pr = await probeMatches(db, tsq, ctx.workspaceId, { seg: segTypes, doc: docTypes.length > 0 });
+      decision = decideSearchPath({ gin, probe: pr, probeTimedOut: pr === null });
+    }
+    path = decision;
+    if (decision === 'exact') {
       collected.push(...(await contentQuery(db, scope, null, contentArgs)));
       exact = true;
     }
@@ -152,7 +171,7 @@ export async function runSearch(db: Db, ctx: WsCtx, q: SearchQuery) {
   collected.sort((a, b) => b.score - a.score || new Date(b.occurred_at ?? 0).getTime() - new Date(a.occurred_at ?? 0).getTime());
   const terms = q.q ? highlightTerms(q.q) : [];
   const items: SearchHitDto[] = collected.slice(0, q.limit).map((r) => toHit(r, terms));
-  return { items, truncated, searchedFrom, hint: truncated ? TRUNCATED_HINT_JA : null, query: queryInfo };
+  return { items, truncated, searchedFrom, hint: truncated ? TRUNCATED_HINT_JA : null, query: { ...queryInfo, path: browse ? 'window' : path } };
 }
 
 interface ContentArgs {
@@ -177,7 +196,8 @@ async function contentQuery(db: Db, scope: MeetingScope, meetingIds: string[] | 
   };
   const where = scopeSql(meetingIds ? { ...scope, meetingIds: meetingIds } : scope, params);
   const tq = a.tsq ? `${p(a.tsq)}::tsquery` : null;
-  const match = (col: string) => (tq ? `${col} @@ ${tq}` : 'TRUE');
+  // exact path (meetingIds = null): GIN-indexable `@@`; window path: non-indexable form keeps the btree plan
+  const match = (col: string) => (!tq ? 'TRUE' : meetingIds ? windowMatch(col, tq) : `${col} @@ ${tq}`);
   const rank = (col: string) => (tq ? `ts_rank_cd(${col}, ${tq}, 32)` : '0::real');
   const branches: string[] = [];
   if (a.segTypes) {
@@ -232,7 +252,7 @@ async function personDocs(db: Db, workspaceId: string, tsq: string | null, perso
   let rank = '0::real';
   if (tsq) {
     params.push(tsq);
-    where += ` AND d.tsv @@ $${params.length}::tsquery`;
+    where += ` AND ${windowMatch('d.tsv', `$${params.length}::tsquery`)}`; // small set via partial btree index
     rank = `ts_rank_cd(d.tsv, $${params.length}::tsquery, 32)`;
   }
   if (personId) {

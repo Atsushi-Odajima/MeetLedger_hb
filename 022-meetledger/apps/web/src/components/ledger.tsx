@@ -1,4 +1,4 @@
-import { useEffect, useState, type ReactNode } from 'react';
+import { useEffect, useState, type FormEvent, type ReactNode } from 'react';
 import { Link } from 'react-router-dom';
 import {
   ACTION_STATUSES,
@@ -167,6 +167,74 @@ export function useActionStatus() {
   };
 }
 
+/** Inline "change due date / assignee" form for confirmed actions and open commitments (PATCH; not queued offline). */
+function InlineEdit({
+  kind,
+  item,
+  onSaved,
+  onClose,
+}: {
+  kind: 'action' | 'commitment';
+  item: { id: string; dueDate?: string | null; assigneePersonId?: string | null; description: string };
+  onSaved(updated: Record<string, unknown>): void;
+  onClose(): void;
+}) {
+  const { t } = useI18n();
+  const toast = useToast();
+  const { a } = useWs();
+  const { people } = usePeople();
+  const [due, setDue] = useState(item.dueDate ?? '');
+  const [assignee, setAssignee] = useState(item.assigneePersonId ?? '');
+  const [busy, setBusy] = useState(false);
+  const save = async (e: FormEvent) => {
+    e.preventDefault();
+    const body: Record<string, unknown> = {};
+    if (due !== (item.dueDate ?? '')) body.dueDate = due || null;
+    if (kind === 'action' && assignee !== (item.assigneePersonId ?? '')) body.assigneePersonId = assignee || null;
+    if (!Object.keys(body).length) return onClose();
+    setBusy(true);
+    try {
+      const r = await api.patch<Record<string, unknown>>(a(`/${kind === 'action' ? 'actions' : 'commitments'}/${item.id}`), body);
+      toast.announce(t('common.saved'));
+      onSaved(r);
+      onClose();
+    } catch (err) {
+      toast.error(err instanceof NetworkError ? t('ledger.editOffline') : err);
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <form className="inline-edit" onSubmit={save} aria-label={t('ledger.editTitle', { title: item.description })}>
+      {kind === 'action' && (
+        <label className="inline-edit-field">
+          <span className="field-label">{t('action.assignee')}</span>
+          <select className="input select select-sm" value={assignee} onChange={(e) => setAssignee(e.target.value)}>
+            <option value="">{t('action.noAssignee')}</option>
+            {people.map((p) => (
+              <option key={p.id} value={p.id}>
+                {p.name}
+              </option>
+            ))}
+          </select>
+        </label>
+      )}
+      <label className="inline-edit-field">
+        <span className="field-label">{t('action.due')}</span>
+        <input className="input input-sm" type="date" value={due} onChange={(e) => setDue(e.target.value)} />
+      </label>
+      <div className="button-row">
+        <Button size="sm" variant="primary" type="submit" loading={busy}>
+          {t('common.save')}
+        </Button>
+        <Button size="sm" variant="ghost" onClick={onClose}>
+          {t('common.cancel')}
+        </Button>
+      </div>
+    </form>
+  );
+}
+
 export function ActionItem({ action, onChange, showSource = true }: { action: ActionDto; onChange?: (a: ActionDto) => void; showSource?: boolean }) {
   const { t, fmt } = useI18n();
   const { wsId, can, p } = useWs();
@@ -190,6 +258,8 @@ export function ActionItem({ action, onChange, showSource = true }: { action: Ac
     }
   };
   const statuses = ACTION_STATUSES.filter((s) => s !== 'candidate' && s !== 'rejected');
+  const [editing, setEditing] = useState(false);
+  const canEditFields = editable && local.status !== 'done' && local.status !== 'cancelled';
   return (
     <li className={`item${isCandidate ? ' item-candidate' : ''}${local.status === 'done' ? ' item-done' : ''}`}>
       {editable && (
@@ -225,8 +295,25 @@ export function ActionItem({ action, onChange, showSource = true }: { action: Ac
           {local.externalSyncState === 'pending_approval' && <Badge tone="info">{t('action.pendingApproval')}</Badge>}
         </div>
         {showSource && <SourceLink source={local.source} compact />}
+        {editing && (
+          <InlineEdit
+            kind="action"
+            item={local}
+            onClose={() => setEditing(false)}
+            onSaved={(r) => {
+              const next = { ...local, ...(r as Partial<ActionDto>) };
+              setLocal(next);
+              onChange?.(next);
+            }}
+          />
+        )}
       </div>
       <div className="item-side">
+        {canEditFields && !editing && (
+          <button type="button" className="icon-btn icon-btn-sm" onClick={() => setEditing(true)} aria-label={t('ledger.editDueAssignee', { title: local.description })} title={t('ledger.editDueAssignee', { title: local.description })}>
+            <Icon name="edit" size={16} />
+          </button>
+        )}
         {editable ? (
           <select className="input select select-sm" value={local.status} onChange={(e) => change(e.target.value as ActionStatus)} aria-label={t('action.status')}>
             {statuses.map((s) => (
@@ -314,9 +401,13 @@ export function DecisionItem({ decision, actions }: { decision: DecisionDto; act
 }
 
 // ------------------------------------------------------------------ commitments / questions
-export function CommitmentItem({ c, actions }: { c: CommitmentDto; actions?: ReactNode }) {
+export function CommitmentItem({ c: initial, actions }: { c: CommitmentDto; actions?: ReactNode }) {
   const { t, fmt } = useI18n();
   const { byId } = usePeople();
+  const { can } = useWs();
+  const [c, setC] = useState(initial);
+  useEffect(() => setC(initial), [initial]);
+  const [editing, setEditing] = useState(false);
   const isCandidate = c.status === 'candidate';
   const names = c as { promisedByName?: string | null; promisedToName?: string | null };
   const by = personName(byId, c.promisedByPersonId, c.promisedByText ?? names.promisedByName) ?? t('commitment.unknown');
@@ -340,8 +431,18 @@ export function CommitmentItem({ c, actions }: { c: CommitmentDto; actions?: Rea
           {!isCandidate && <Badge>{t(`commitmentStatus.${c.status}` as MsgKey)}</Badge>}
         </div>
         <SourceLink source={c.source} compact />
+        {editing && <InlineEdit kind="commitment" item={c} onClose={() => setEditing(false)} onSaved={(r) => setC((cur) => ({ ...cur, ...(r as Partial<CommitmentDto>) }))} />}
       </div>
-      {actions && <div className="item-side">{actions}</div>}
+      {(actions || (can('member') && c.status === 'open')) && (
+        <div className="item-side">
+          {can('member') && c.status === 'open' && !editing && (
+            <button type="button" className="icon-btn icon-btn-sm" onClick={() => setEditing(true)} aria-label={t('ledger.editDue', { title: c.description })} title={t('ledger.editDue', { title: c.description })}>
+              <Icon name="edit" size={16} />
+            </button>
+          )}
+          {actions}
+        </div>
+      )}
     </li>
   );
 }

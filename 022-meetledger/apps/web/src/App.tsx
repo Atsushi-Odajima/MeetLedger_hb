@@ -7,6 +7,7 @@ import { ErrorView, Loading, EmptyState, LinkButton } from './components/ui';
 import { useI18n } from './i18n';
 import { SetupPage } from './pages/Setup';
 import { LoginPage } from './pages/Login';
+import { SignupPage } from './pages/Signup';
 import { AcceptInvitePage } from './pages/AcceptInvite';
 import { NoWorkspacePage } from './pages/NoWorkspace';
 import { DashboardPage } from './pages/Dashboard';
@@ -160,6 +161,7 @@ export function App() {
         <Route path="/" element={<RootRedirect />} />
         <Route path="/setup" element={<SetupPage />} />
         <Route path="/login" element={<LoginPage />} />
+        <Route path="/signup" element={<SignupPage />} />
         <Route path="/invite" element={<AcceptInvitePage />} />
         <Route path="/no-workspace" element={<RequireAuth><NoWorkspacePage /></RequireAuth>} />
         <Route path="/go/:target" element={<GoRedirect />} />

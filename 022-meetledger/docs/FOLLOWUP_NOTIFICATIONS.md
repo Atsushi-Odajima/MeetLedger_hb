@@ -67,14 +67,16 @@
 | `action_t1` | Action 担当ユーザー | 確定の翌日（〜翌々日まで）。期限当日/期限切れのものは除外 | `action_t1:{actionId}` |
 | `action_due` | Action 担当ユーザー | 期限日の朝（ユーザーTZの quiet 終了時刻、既定 08:00） | `action_due:{actionId}:{due}` |
 | `commitment_due` | 約束した本人（promised_by） | 期限日の朝 | `commitment_due:{id}:{due}` |
-| `overdue_digest` | 本人 | 期限切れの自分の Action/約束を **1通にまとめて**、ユーザーTZの ISO 週ごとに最大1回（quiet 外でのみ作成） | `overdue_digest:{orgId}:{YYYY-Www}` |
+| `overdue_digest` | 本人 | 期限切れの自分の Action/約束を **1通にまとめて**（期限が新しい順に10件 + 総数。1000件で打ち切り「1000件以上」）、ユーザーTZの ISO 週ごとに最大1回。作成はユーザーの朝（quiet 終了から3時間以内） | `overdue_digest:{orgId}:{YYYY-Www}` |
 | `upcoming_brief` | 作成者 + 参加者（ユーザー紐づけ）で会議を閲覧できる人 | 開始の `brief_lead_min` 分前（0 で無効） | `upcoming_brief:{meetingId}:{start}` |
 | `next_meeting` | 会議の作成者 | シリーズの会議が終了（3日以内）し、次回が未登録 | `next_meeting:{meetingId}` |
 | `digest` | 本人 | storm control で溢れた分をまとめたもの | `digest:{最初の統合元id}` |
 
 - 受信者はワークスペースのメンバーであり、かつ元の会議を閲覧できる必要があります（`meetingVisibleSql` を受信者で評価）。
   他人の Private 会議の項目について通知されることはありません。
-- **重複防止**: `notifications UNIQUE(user_id, dedupe_key)` + `ON CONFLICT DO NOTHING`。期限が変更された場合はキーが変わるので再通知されます。
+- **重複防止**: `notifications UNIQUE(user_id, dedupe_key)` + `ON CONFLICT DO NOTHING`（unnest による一括 INSERT）。期限が変更された場合はキーが変わるので再通知されます。
+- **有界な処理量（§40規模）**: 候補はすべて索引の範囲検索（期限日±1日、直近4日の確定、直近の会議、24時間以内の会議）。期限切れ項目を1件ずつ走査せず、
+  週次まとめが未作成のユーザーだけ上位10件+件数を取得します。性能DB（Action/約束 各50万件）で 1 tick ≈ 0.1 秒（週初回のまとめ作成時 ≈ 0.4 秒）。
 
 ### Quiet hours / タイムゾーン
 - `user_prefs`（ユーザー×組織）: `quiet_start_min`（既定 22:00）、`quiet_end_min`（既定 08:00）、`timezone`、`email_enabled`、`max_per_hour`（既定6）、`brief_lead_min`（既定60）。

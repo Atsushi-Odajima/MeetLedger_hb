@@ -1,14 +1,14 @@
 import { useEffect, useState, type FormEvent } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import type { MeetingDto, Paged, PersonDto } from '@meetledger/shared';
-import { Async, Badge, Button, Card, Dialog, EmptyState, PageHeader, TextArea, TextField } from '../components/ui';
+import { Async, Badge, Button, Card, Dialog, EmptyState, LoadMore, PageHeader, TextArea, TextField } from '../components/ui';
 import { MeetingRow } from '../components/ledger';
-import { MemoryView, type MemoryDto } from '../components/MemoryView';
+import { MemoryView, type MemoryDto, type TimelineEvent } from '../components/MemoryView';
 import { useI18n } from '../i18n';
 import { useWs } from '../state/workspace';
 import { useToast } from '../state/toast';
 import { api, listOf, qs } from '../lib/api';
-import { useApi, useDebounced } from '../lib/hooks';
+import { useApi, useDebounced, usePaged } from '../lib/hooks';
 
 interface PersonForm {
   name: string;
@@ -153,7 +153,7 @@ export function PersonPage() {
   const { a, p, can } = useWs();
   const navigate = useNavigate();
   const person = useApi<PersonDto & { personNotes?: { id: string; body: string; created_at?: string; createdAt?: string; author?: string | null }[] }>(a(`/people/${personId}`));
-  const timeline = useApi<MemoryDto>(a(`/people/${personId}/timeline`));
+  const timeline = usePaged<TimelineEvent>(a(`/people/${personId}/timeline`), 'events', 'timeline');
   const meetings = useApi<Paged<MeetingDto>>(a(`/meetings${qs({ personId, limit: 20 })}`));
   const [editing, setEditing] = useState(false);
   const [note, setNote] = useState('');
@@ -203,7 +203,16 @@ export function PersonPage() {
           <div className="two-col">
             <div className="stack">
               <Card title={t('people.timeline')}>
-                <Async state={timeline}>{(tl) => <MemoryView data={Array.isArray(tl) ? { timeline: tl as MemoryDto['timeline'] } : tl} />}</Async>
+                <Async state={timeline}>
+                  {(tl) => (
+                    <MemoryView
+                      data={{ ...(Array.isArray(tl) ? {} : (tl as MemoryDto)), timeline: timeline.items ?? [], events: undefined }}
+                      timelineFooter={
+                        <LoadMore shown={timeline.items?.length ?? 0} hasMore={timeline.hasMore} loading={timeline.loadingMore} error={timeline.moreError} onMore={timeline.loadMore} />
+                      }
+                    />
+                  )}
+                </Async>
               </Card>
               <Card title={t('people.meetings')}>
                 <Async state={meetings}>

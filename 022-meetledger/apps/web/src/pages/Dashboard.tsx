@@ -16,7 +16,35 @@ function startOfToday(): string {
   return d.toISOString();
 }
 
-function Section({ id, titleKey, hintKey, count, children, empty, action }: { id: string; titleKey: MsgKey; hintKey?: MsgKey; count?: number; children: ReactNode; empty: boolean; action?: ReactNode }) {
+/** Section shows at most this many rows; the rest is one click away ("すべて見る"). */
+const TOP = 10;
+
+/** "1000+" when the server capped the count. */
+export function formatCount(n: number, cap?: number): string {
+  return typeof cap === 'number' && n >= cap ? `${cap}+` : String(n);
+}
+
+function Section({
+  id,
+  titleKey,
+  hintKey,
+  hint,
+  count,
+  cap,
+  children,
+  empty,
+  action,
+}: {
+  id: string;
+  titleKey: MsgKey;
+  hintKey?: MsgKey;
+  hint?: ReactNode;
+  count?: number;
+  cap?: number;
+  children: ReactNode;
+  empty: boolean;
+  action?: ReactNode;
+}) {
   const { t } = useI18n();
   return (
     <Card
@@ -24,7 +52,7 @@ function Section({ id, titleKey, hintKey, count, children, empty, action }: { id
       title={
         <>
           {t(titleKey)}
-          {typeof count === 'number' && count > 0 && <span className="count-pill">{count}</span>}
+          {typeof count === 'number' && count > 0 && <span className="count-pill">{formatCount(count, cap)}</span>}
         </>
       }
       actions={action}
@@ -32,6 +60,7 @@ function Section({ id, titleKey, hintKey, count, children, empty, action }: { id
     >
       {hintKey && !empty && <p className="field-hint">{t(hintKey)}</p>}
       {empty ? <p className="muted calm">{t(`${titleKey}.empty` as MsgKey)}</p> : children}
+      {hint && !empty && <p className="field-hint">{hint}</p>}
     </Card>
   );
 }
@@ -94,6 +123,15 @@ export function DashboardPage() {
   const overdue = flattenGrouped(d.overdue);
   const changed = d.decisionsChanged ?? [];
   const questions = (d.openQuestions ?? []) as QuestionDto[];
+  const c = d.counts ?? {};
+  const cap = d.countCap;
+  const n = (k: keyof NonNullable<DashboardDto['counts']>, fallback: number) => (typeof c[k] === 'number' ? (c[k] as number) : fallback);
+  const seeAll = (to: string) => (
+    <LinkButton size="sm" to={p(to)}>
+      {t('common.seeAll')}
+    </LinkButton>
+  );
+  const windowHint = d.windowDays ? t('dash.windowHint', { n: d.windowDays }) : undefined;
 
   return (
     <>
@@ -101,65 +139,125 @@ export function DashboardPage() {
       <CachedNotice at={dash.cachedAt} />
       {fallback && <p className="field-hint">{t('dash.fallback')}</p>}
       <div className="dash-grid">
-        <Section id="dash-today" titleKey="dash.today" count={today.length} empty={!today.length}>
+        <Section id="dash-today" titleKey="dash.today" count={n('today', today.length)} cap={cap} empty={!today.length} action={seeAll('/meetings')}>
           <ul className="rows">
             {today.map((m) => (
               <MeetingRow key={m.id} m={m} showDate={false} />
             ))}
           </ul>
         </Section>
-        <Section id="dash-review" titleKey="dash.needsReview" hintKey="dash.needsReview.hint" count={needsReview.length} empty={!needsReview.length} action={<LinkButton size="sm" to={p('/review')}>{t('common.open')}</LinkButton>}>
+        <Section
+          id="dash-review"
+          titleKey="dash.needsReview"
+          hintKey="dash.needsReview.hint"
+          hint={windowHint}
+          count={n('needsReview', needsReview.length)}
+          cap={cap}
+          empty={!needsReview.length}
+          action={
+            <LinkButton size="sm" to={p('/review')}>
+              {t('common.open')}
+            </LinkButton>
+          }
+        >
           <ul className="rows">
             {needsReview.map((m) => (
               <MeetingRow key={m.id} m={m} />
             ))}
           </ul>
         </Section>
-        <Section id="dash-actions" titleKey="dash.myActions" count={myActions.length} empty={!myActions.length} action={<LinkButton size="sm" to={p('/ledger?tab=actions&assignee=me')}>{t('common.seeAll')}</LinkButton>}>
+        <Section
+          id="dash-actions"
+          titleKey="dash.myActions"
+          count={n('myActions', myActions.length)}
+          cap={cap}
+          empty={!myActions.length}
+          action={seeAll('/ledger?tab=actions&assignee=me')}
+        >
           <ul className="items">
-            {myActions.slice(0, 8).map((x) => (
+            {myActions.slice(0, TOP).map((x) => (
               <ActionItem key={x.id} action={x} showSource={false} />
             ))}
           </ul>
         </Section>
-        <Section id="dash-upcoming" titleKey="dash.upcoming" count={upcoming.length} empty={!upcoming.length} action={<LinkButton size="sm" to={p('/meetings')}>{t('common.seeAll')}</LinkButton>}>
+        <Section id="dash-upcoming" titleKey="dash.upcoming" count={n('upcoming', upcoming.length)} cap={cap} empty={!upcoming.length} action={seeAll('/meetings')}>
           <ul className="rows">
-            {upcoming.slice(0, 8).map((m) => (
+            {upcoming.slice(0, TOP).map((m) => (
               <MeetingRow key={m.id} m={m} />
             ))}
           </ul>
         </Section>
-        <Section id="dash-commitments" titleKey="dash.myCommitments" count={myCommitments.length} empty={!myCommitments.length}>
+        <Section
+          id="dash-commitments"
+          titleKey="dash.myCommitments"
+          count={n('myCommitments', myCommitments.length)}
+          cap={cap}
+          empty={!myCommitments.length}
+          action={seeAll('/ledger?tab=commitments&direction=mine')}
+        >
           <ul className="items">
-            {myCommitments.slice(0, 6).map((c) => (
+            {myCommitments.slice(0, TOP).map((c) => (
               <CommitmentItem key={c.id} c={c} />
             ))}
           </ul>
         </Section>
-        <Section id="dash-waiting" titleKey="dash.waiting" count={waiting.length} empty={!waiting.length}>
+        <Section
+          id="dash-waiting"
+          titleKey="dash.waiting"
+          hint={windowHint}
+          count={n('waitingOnOthers', waiting.length)}
+          cap={cap}
+          empty={!waiting.length}
+          action={seeAll('/ledger?tab=commitments&direction=theirs')}
+        >
           <ul className="items">
-            {waiting.slice(0, 8).map((x) => (
+            {waiting.slice(0, TOP).map((x) => (
               <AnyLedgerItem key={(x as { id: string }).id} item={x as unknown as Record<string, unknown>} />
             ))}
           </ul>
         </Section>
-        <Section id="dash-overdue" titleKey="dash.overdue" hintKey="dash.overdue.hint" count={overdue.length} empty={!overdue.length}>
+        <Section
+          id="dash-overdue"
+          titleKey="dash.overdue"
+          hintKey="dash.overdue.hint"
+          count={n('overdue', overdue.length)}
+          cap={cap}
+          empty={!overdue.length}
+          action={seeAll('/ledger?tab=actions&assignee=me&overdue=1')}
+        >
           <ul className="items">
-            {overdue.slice(0, 8).map((x) => (
+            {overdue.slice(0, TOP).map((x) => (
               <AnyLedgerItem key={(x as { id: string }).id} item={x as unknown as Record<string, unknown>} />
             ))}
           </ul>
         </Section>
-        <Section id="dash-changed" titleKey="dash.decisionsChanged" count={changed.length} empty={!changed.length}>
+        <Section
+          id="dash-changed"
+          titleKey="dash.decisionsChanged"
+          count={n('decisionsChanged', changed.length)}
+          cap={cap}
+          empty={!changed.length}
+          action={seeAll('/ledger?tab=decisions&view=all')}
+        >
           <ul className="items">
-            {changed.slice(0, 5).map((x, i) =>
-              'previous' in x ? <DecisionChangeItem key={x.previous.id ?? i} change={x as DecisionChangeDto} /> : <DecisionItem key={x.id} decision={x as DecisionDto} />,
-            )}
+            {changed
+              .slice(0, TOP)
+              .map((x, i) =>
+                'previous' in x ? <DecisionChangeItem key={x.previous.id ?? i} change={x as DecisionChangeDto} /> : <DecisionItem key={x.id} decision={x as DecisionDto} />,
+              )}
           </ul>
         </Section>
-        <Section id="dash-questions" titleKey="dash.openQuestions" count={questions.length} empty={!questions.length}>
+        <Section
+          id="dash-questions"
+          titleKey="dash.openQuestions"
+          hint={windowHint}
+          count={n('openQuestions', questions.length)}
+          cap={cap}
+          empty={!questions.length}
+          action={seeAll('/ledger?tab=questions')}
+        >
           <ul className="items">
-            {questions.slice(0, 6).map((q) => (
+            {questions.slice(0, TOP).map((q) => (
               <QuestionItem key={q.id} q={q} />
             ))}
           </ul>

@@ -1,14 +1,14 @@
 import { useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { ACTION_STATUSES, COMMITMENT_STATUSES, QUESTION_STATUSES, type ActionDto, type CommitmentDto, type DecisionDto, type QuestionDto } from '@meetledger/shared';
-import { Async, Button, Checkbox, Dialog, EmptyState, PageHeader, SelectField, TabPanel, Tabs, TextArea } from '../components/ui';
+import { Async, Button, Checkbox, Dialog, EmptyState, LoadMore, PageHeader, SelectField, TabPanel, Tabs, TextArea } from '../components/ui';
 import { Icon } from '../components/Icon';
 import { ActionItem, CommitmentItem, DecisionItem, QuestionItem } from '../components/ledger';
 import { useI18n, type MsgKey } from '../i18n';
 import { useWs } from '../state/workspace';
 import { useToast } from '../state/toast';
-import { api, listOf, qs } from '../lib/api';
-import { useApi } from '../lib/hooks';
+import { api, qs } from '../lib/api';
+import { usePaged, type PagedState } from '../lib/hooks';
 
 type LedgerTab = 'decisions' | 'actions' | 'commitments' | 'questions';
 
@@ -21,12 +21,20 @@ function ExportLink({ href, label }: { href: string; label: string }) {
   );
 }
 
+function More({ state }: { state: PagedState<unknown> }) {
+  return <LoadMore shown={state.items?.length ?? 0} total={state.total} hasMore={state.hasMore} loading={state.loadingMore} error={state.moreError} onMore={state.loadMore} />;
+}
+
 function Decisions() {
   const { t } = useI18n();
   const toast = useToast();
   const { a, can } = useWs();
-  const [view, setView] = useState<'current' | 'all' | 'candidates' | 'superseded'>('current');
-  const state = useApi<unknown>(a(`/decisions${qs({ view })}`));
+  const [params] = useSearchParams();
+  const initialView = params.get('view');
+  const [view, setView] = useState<'current' | 'all' | 'candidates' | 'superseded'>(
+    initialView === 'all' || initialView === 'candidates' || initialView === 'superseded' ? initialView : 'current',
+  );
+  const state = usePaged<DecisionDto>(a(`/decisions${qs({ view })}`), 'decisions');
   const [supersede, setSupersede] = useState<DecisionDto | null>(null);
   const [text, setText] = useState('');
   const [busy, setBusy] = useState(false);
@@ -60,24 +68,27 @@ function Decisions() {
         </div>
       </div>
       <Async state={state}>
-        {(d) => {
-          const items = listOf<DecisionDto>(d, 'decisions');
+        {() => {
+          const items = state.items ?? [];
           return items.length ? (
-            <ul className="items items-card">
-              {items.map((x) => (
-                <DecisionItem
-                  key={x.id}
-                  decision={x}
-                  actions={
-                    can('member') && x.status === 'active' && x.reviewState === 'confirmed' ? (
-                      <Button size="sm" icon="edit" onClick={() => setSupersede(x)}>
-                        {t('decision.supersede')}
-                      </Button>
-                    ) : undefined
-                  }
-                />
-              ))}
-            </ul>
+            <>
+              <ul className="items items-card">
+                {items.map((x) => (
+                  <DecisionItem
+                    key={x.id}
+                    decision={x}
+                    actions={
+                      can('member') && x.status === 'active' && x.reviewState === 'confirmed' ? (
+                        <Button size="sm" icon="edit" onClick={() => setSupersede(x)}>
+                          {t('decision.supersede')}
+                        </Button>
+                      ) : undefined
+                    }
+                  />
+                ))}
+              </ul>
+              <More state={state} />
+            </>
           ) : (
             <EmptyState icon="book" title={t('ledger.noDecisions')} />
           );
@@ -110,8 +121,8 @@ function Actions() {
   const [params] = useSearchParams();
   const [status, setStatus] = useState('');
   const [mine, setMine] = useState(params.get('assignee') === 'me');
-  const [overdue, setOverdue] = useState(false);
-  const state = useApi<unknown>(a(`/actions${qs({ status, assignee: mine ? 'me' : undefined, overdue: overdue ? 1 : undefined })}`));
+  const [overdue, setOverdue] = useState(params.get('overdue') === '1');
+  const state = usePaged<ActionDto>(a(`/actions${qs({ status, assignee: mine ? 'me' : undefined, overdue: overdue ? 1 : undefined })}`), 'actions');
   return (
     <>
       <div className="filters">
@@ -128,14 +139,17 @@ function Actions() {
         </div>
       </div>
       <Async state={state}>
-        {(d) => {
-          const items = listOf<ActionDto>(d, 'actions');
+        {() => {
+          const items = state.items ?? [];
           return items.length ? (
-            <ul className="items items-card">
-              {items.map((x) => (
-                <ActionItem key={x.id} action={x} />
-              ))}
-            </ul>
+            <>
+              <ul className="items items-card">
+                {items.map((x) => (
+                  <ActionItem key={x.id} action={x} />
+                ))}
+              </ul>
+              <More state={state} />
+            </>
           ) : (
             <EmptyState icon="check" title={t('ledger.noActions')} />
           );
@@ -153,7 +167,8 @@ function Commitments() {
   const initialDir = params.get('direction');
   const [direction, setDirection] = useState<'all' | 'mine' | 'theirs'>(initialDir === 'mine' || initialDir === 'theirs' ? initialDir : 'all');
   const [status, setStatus] = useState('open');
-  const state = useApi<unknown>(a(`/commitments${qs({ direction, status })}`));
+  const [overdueOnly, setOverdueOnly] = useState(params.get('overdue') === '1');
+  const state = usePaged<CommitmentDto>(a(`/commitments${qs({ direction, status, overdue: overdueOnly ? 1 : undefined })}`), 'commitments');
   const update = async (c: CommitmentDto, s: string) => {
     try {
       await api.patch(a(`/commitments/${c.id}`), { status: s });
@@ -178,34 +193,38 @@ function Commitments() {
           onChange={(e) => setStatus(e.target.value)}
           options={[{ value: '', label: t('common.all') }, ...COMMITMENT_STATUSES.map((s) => ({ value: s, label: t(`commitmentStatus.${s}` as MsgKey) }))]}
         />
+        <Checkbox label={t('ledger.overdueOnly')} checked={overdueOnly} onChange={(e) => setOverdueOnly(e.target.checked)} />
         <div className="filters-end">
           <ExportLink href={a('/commitments/export?format=csv')} label="CSV" />
         </div>
       </div>
       <Async state={state}>
-        {(d) => {
-          const items = listOf<CommitmentDto>(d, 'commitments');
+        {() => {
+          const items = state.items ?? [];
           return items.length ? (
-            <ul className="items items-card">
-              {items.map((x) => (
-                <CommitmentItem
-                  key={x.id}
-                  c={x}
-                  actions={
-                    can('member') && x.status === 'open' ? (
-                      <div className="button-row">
-                        <Button size="sm" icon="check" onClick={() => update(x, 'done')}>
-                          {t('commitment.markDone')}
-                        </Button>
-                        <Button size="sm" variant="ghost" onClick={() => update(x, 'cancelled')}>
-                          {t('commitment.cancel')}
-                        </Button>
-                      </div>
-                    ) : undefined
-                  }
-                />
-              ))}
-            </ul>
+            <>
+              <ul className="items items-card">
+                {items.map((x) => (
+                  <CommitmentItem
+                    key={x.id}
+                    c={x}
+                    actions={
+                      can('member') && x.status === 'open' ? (
+                        <div className="button-row">
+                          <Button size="sm" icon="check" onClick={() => update(x, 'done')}>
+                            {t('commitment.markDone')}
+                          </Button>
+                          <Button size="sm" variant="ghost" onClick={() => update(x, 'cancelled')}>
+                            {t('commitment.cancel')}
+                          </Button>
+                        </div>
+                      ) : undefined
+                    }
+                  />
+                ))}
+              </ul>
+              <More state={state} />
+            </>
           ) : (
             <EmptyState icon="users" title={t('ledger.noCommitments')} />
           );
@@ -220,7 +239,7 @@ function Questions() {
   const toast = useToast();
   const { a, can } = useWs();
   const [status, setStatus] = useState('open');
-  const state = useApi<unknown>(a(`/questions${qs({ status })}`));
+  const state = usePaged<QuestionDto>(a(`/questions${qs({ status })}`), 'questions');
   const [answering, setAnswering] = useState<QuestionDto | null>(null);
   const [answer, setAnswer] = useState('');
   const update = async (q: QuestionDto, body: Record<string, unknown>) => {
@@ -245,29 +264,32 @@ function Questions() {
         />
       </div>
       <Async state={state}>
-        {(d) => {
-          const items = listOf<QuestionDto>(d, 'questions');
+        {() => {
+          const items = state.items ?? [];
           return items.length ? (
-            <ul className="items items-card">
-              {items.map((x) => (
-                <QuestionItem
-                  key={x.id}
-                  q={x}
-                  actions={
-                    can('member') && x.status === 'open' ? (
-                      <div className="button-row">
-                        <Button size="sm" onClick={() => setAnswering(x)}>
-                          {t('question.answerIt')}
-                        </Button>
-                        <Button size="sm" variant="ghost" onClick={() => update(x, { status: 'dropped' })}>
-                          {t('question.drop')}
-                        </Button>
-                      </div>
-                    ) : undefined
-                  }
-                />
-              ))}
-            </ul>
+            <>
+              <ul className="items items-card">
+                {items.map((x) => (
+                  <QuestionItem
+                    key={x.id}
+                    q={x}
+                    actions={
+                      can('member') && x.status === 'open' ? (
+                        <div className="button-row">
+                          <Button size="sm" onClick={() => setAnswering(x)}>
+                            {t('question.answerIt')}
+                          </Button>
+                          <Button size="sm" variant="ghost" onClick={() => update(x, { status: 'dropped' })}>
+                            {t('question.drop')}
+                          </Button>
+                        </div>
+                      ) : undefined
+                    }
+                  />
+                ))}
+              </ul>
+              <More state={state} />
+            </>
           ) : (
             <EmptyState icon="info" title={t('ledger.noQuestions')} />
           );

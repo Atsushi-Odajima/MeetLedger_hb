@@ -9,6 +9,8 @@ import { hashPassword } from '../../apps/server/src/lib/crypto';
 
 process.env.MEETLEDGER_FAST_HASH = '1';
 const runs = Number(process.argv.find((a, i, arr) => arr[i - 1] === '--runs') ?? 20);
+const outName = process.argv.find((a, i, arr) => arr[i - 1] === '--out') ?? 'api-latency.md';
+const label = process.argv.find((a, i, arr) => arr[i - 1] === '--label') ?? '';
 const url = process.env.PERF_DATABASE_URL!;
 const pool = createPool(url, 10);
 const config = loadConfig({ NODE_ENV: 'test', DATABASE_URL: url, STORAGE_DIR: '/tmp/ml-perf-store', TMP_DIR: '/tmp/ml-perf-tmp', LOG_LEVEL: 'warn', WEB_DIST_DIR: '/nonexistent' });
@@ -40,6 +42,7 @@ const cases: { name: string; method: 'GET' | 'POST'; url: string; payload?: unkn
   { name: 'search: ProofFlow', method: 'GET', url: `${W}/search?q=ProofFlow&limit=20` },
   { name: 'search: 公開日 11月 (AND)', method: 'GET', url: `${W}/search?q=${encodeURIComponent('公開日 11月')}&limit=20` },
   { name: 'search: rare phrase 研修の日程', method: 'GET', url: `${W}/search?q=${encodeURIComponent('研修の日程')}&limit=20` },
+  { name: 'search: no match (zzqxj)', method: 'GET', url: `${W}/search?q=zzqxj&limit=20` },
   { name: 'search: 価格 + person filter', method: 'GET', url: `${W}/search?q=${encodeURIComponent('価格')}&personId=${ids.personId}&limit=20` },
   { name: 'search: 価格 + project filter', method: 'GET', url: `${W}/search?q=${encodeURIComponent('価格')}&projectId=${ids.projectId}&limit=20` },
   { name: 'ask: 価格について何を決めた？ (local)', method: 'POST', url: `${W}/ask`, payload: { question: '価格について何を決めた？' } },
@@ -47,6 +50,7 @@ const cases: { name: string; method: 'GET' | 'POST'; url: string; payload?: unkn
   { name: `project memory (${ids.projectMeetings} meetings)`, method: 'GET', url: `${W}/projects/${ids.projectId}/memory` },
   { name: `series memory (${ids.seriesMeetings} meetings)`, method: 'GET', url: `${W}/series/${ids.seriesId}/memory` },
   { name: `person timeline (${ids.personMeetings} meetings)`, method: 'GET', url: `${W}/people/${ids.personId}/timeline` },
+  { name: 'topic memory: 公開日', method: 'GET', url: `${W}/memory?topic=${encodeURIComponent('公開日')}` },
   { name: 'dashboard', method: 'GET', url: `${W}/dashboard` },
   { name: 'decisions current (first page)', method: 'GET', url: `${W}/decisions?view=current` },
   { name: 'actions assignee=me', method: 'GET', url: `${W}/actions?assignee=me` },
@@ -55,6 +59,8 @@ const cases: { name: string; method: 'GET' | 'POST'; url: string; payload?: unkn
   { name: 'review inbox', method: 'GET', url: `${W}/review` },
 ];
 
+const leak = await pool.query("SELECT proleakproof FROM pg_proc WHERE proname = 'ts_match_vq'");
+console.log(`ts_match_vq leakproof: ${leak.rows[0]?.proleakproof}`);
 const pct = (arr: number[], p: number) => arr.slice().sort((a, b) => a - b)[Math.min(arr.length - 1, Math.floor((p / 100) * arr.length))];
 const results: any[] = [];
 for (const c of cases) {
@@ -75,7 +81,7 @@ for (const c of cases) {
 }
 mkdirSync('perf/out', { recursive: true });
 const md = [
-  `# Perf results (${new Date().toISOString()})`,
+  `# Perf results ${label} (${new Date().toISOString()})`,
   '',
   `Data: ${JSON.stringify(ids.counts)} / runs per case: ${runs} (after 2 warm-up) / in-process fastify.inject, PostgreSQL 16 local (4 vCPU, fsync off test cluster)`,
   '',
@@ -83,7 +89,7 @@ const md = [
   '|---|---|---|---|---|---|',
   ...results.map((r) => `| ${r.case} | ${r.status} | ${r.p50_ms} | ${r.p95_ms} | ${r.max_ms} | ${r.bytes} |`),
 ].join('\n');
-writeFileSync('perf/out/api-latency.md', md + '\n');
+writeFileSync(`perf/out/${outName}`, md + '\n');
 console.log(md);
 await app.close();
 await pool.end();

@@ -2608,3 +2608,66 @@ a.result-title:hover {
     display: block;
   }
 }
+
+/* paged lists */
+.load-more-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-top: 12px;
+}
+.list-count {
+  font-size: 0.875rem;
+  margin: 8px 0 0;
+}
+
+/* inline due / assignee edit on ledger rows */
+.inline-edit {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 8px 12px;
+  margin-top: 8px;
+  padding: 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm, 8px);
+  background: var(--surface-2, var(--surface));
+}
+.inline-edit-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 140px;
+}
+.input-sm {
+  padding: 4px 8px;
+  min-height: 32px;
+}
+
+/* about & licenses */
+.notices-text {
+  max-height: 60vh;
+  overflow: auto;
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-family: var(--mono);
+  font-size: 0.8125rem;
+  line-height: 1.55;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface-2);
+}
+.license-attribution {
+  margin: 6px 0 0;
+  font-size: 0.8125rem;
+  color: var(--text-muted);
+}
+.kv-compact .kv-row {
+  padding: 2px 0;
+}
+.license-item .item-title {
+  flex-wrap: wrap;
+}

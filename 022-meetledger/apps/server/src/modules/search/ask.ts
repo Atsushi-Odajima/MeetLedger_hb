@@ -17,7 +17,7 @@ import { embedTexts, embeddingDecision, embeddingProviderFor } from './embed';
 import { keywordsTsq, makeSnippet, norm } from './text';
 import { localDate, parseAskHints, safeTz, type AskHints, type AskItemType } from './scope';
 import { parseBound } from './search';
-import { nextWindow, personMeetingIds, scopeSql, WindowPlanner, type Cursor, type MeetingScope } from './windows';
+import { nextWindow, personMeetingIds, scopeSql, windowMatch, WindowPlanner, type Cursor, type MeetingScope } from './windows';
 
 export const UNKNOWN_ANSWER_JA = '記録からは分かりません';
 export const UNKNOWN_ANSWER_EN = 'The records do not contain enough information to answer this.';
@@ -359,7 +359,7 @@ export async function runAsk(ctx: WsCtx, b: AskBody): Promise<AskResult> {
       const win = winSql(S2, ids);
       const where = `c.workspace_id = $1 AND ${S2.person('c.meeting_id', 'c.person_ids && $P')} AND ${S2.topic('v.project_id', 'c.meeting_id', null, (names) => {
         const tq = keywordsTsq(names);
-        return tq ? `c.tsv @@ ${S2.p(tq)}::tsquery` : 'FALSE';
+        return tq ? windowMatch('c.tsv', `${S2.p(tq)}::tsquery`) : 'FALSE';
       })}`;
       const kqP = S2.p(kq);
       const m1 = S2.p(LOCAL_HASH_MODEL);
@@ -368,7 +368,7 @@ export async function runAsk(ctx: WsCtx, b: AskBody): Promise<AskResult> {
       const v2 = S2.p(qVec);
       const dot = (v: string) => `(SELECT coalesce(sum(a * b), 0) FROM unnest(c.embedding, ${v}::real[]) AS t(a, b))`;
       // with keywords: lexical matches (+ every chunk of the newest window for semantic models); without: summaries / decisions
-      const filter = keywords.length ? `(c.tsv @@ ${kqP}::tsquery OR ${S2.p(semAll)}::boolean)` : `c.entity_type IN ('summary','decision')`;
+      const filter = keywords.length ? `(${windowMatch('c.tsv', `${kqP}::tsquery`)} OR ${S2.p(semAll)}::boolean)` : `c.entity_type IN ('summary','decision')`;
       return rows<any>(
         db,
         `WITH v AS MATERIALIZED (${win})
@@ -591,8 +591,8 @@ async function countExcluded(
   let match = 'TRUE';
   if (kq) {
     const a = S.p(kq);
-    match = `(EXISTS (SELECT 1 FROM transcripts t JOIN transcript_segments s ON s.transcript_id = t.id WHERE t.meeting_id = v.id AND t.is_current AND s.tsv @@ ${a}::tsquery)
-              OR EXISTS (SELECT 1 FROM search_docs d WHERE d.meeting_id = v.id AND d.tsv @@ ${a}::tsquery))`;
+    match = `(EXISTS (SELECT 1 FROM transcripts t JOIN transcript_segments s ON s.transcript_id = t.id WHERE t.meeting_id = v.id AND t.is_current AND ${windowMatch('s.tsv', `${a}::tsquery`)})
+              OR EXISTS (SELECT 1 FROM search_docs d WHERE d.meeting_id = v.id AND ${windowMatch('d.tsv', `${a}::tsquery`)}))`;
   }
   const r = await one<{ n: number }>(db, `WITH v AS MATERIALIZED (${vis}) SELECT count(*)::int AS n FROM v WHERE ${person} AND ${topic} AND ${match}`, S.params);
   return r?.n ?? 0;

@@ -12,7 +12,7 @@ import { useMeeting } from './context';
 
 type Channel = 'email' | 'slack' | 'chat' | 'other';
 
-/** Requests an external send (Slack / webhook / CRM). Nothing is sent until approved on the approval page. */
+/** Requests an external send (Slack / Gmail draft / HubSpot / webhook). Nothing is sent until approved on the approval page. */
 function ExternalSend({ d }: { d: FollowupListItem }) {
   const { t, tm } = useI18n();
   const toast = useToast();
@@ -20,12 +20,31 @@ function ExternalSend({ d }: { d: FollowupListItem }) {
   const navigate = useNavigate();
   const { meeting } = useMeeting();
   const connectors = useApi<unknown>(a('/connectors'));
-  const writable = listOf<ConnectorDto>(connectors.data, 'connectors').filter((c) => c.kind === 'write' && c.status === 'active');
+  const writable = listOf<ConnectorDto & { config?: Record<string, unknown> }>(connectors.data, 'connectors').filter((c) => c.kind === 'write' && c.status === 'active');
   const [connectorId, setConnectorId] = useState('');
   const [to, setTo] = useState('');
+  const [channel, setChannel] = useState('');
+  const [subject, setSubject] = useState(d.subject ?? '');
+  const [objectType, setObjectType] = useState<'contact' | 'company' | 'deal'>('contact');
+  const [objectId, setObjectId] = useState('');
   const [busy, setBusy] = useState(false);
   if (!writable.length) return <p className="field-hint">{t('followup.noDestinations')} <Link to={p('/settings/connectors')}>{t('settings.connectors')}</Link></p>;
   const selected = writable.find((c) => c.id === connectorId) ?? writable[0];
+  const cfg = (selected.config ?? {}) as { mode?: string; defaultChannel?: string | null; channelLabel?: string | null };
+  const slackBot = selected.provider === 'slack' && cfg.mode === 'bot';
+  const recipients = to
+    .split(/[,\s]+/)
+    .map((x) => x.trim())
+    .filter(Boolean)
+    .slice(0, 20);
+  const ready =
+    selected.provider === 'gmail'
+      ? recipients.length > 0 && !!subject.trim()
+      : selected.provider === 'hubspot'
+        ? /^\d{1,20}$/.test(objectId.trim())
+        : slackBot
+          ? !!(channel.trim() || cfg.defaultChannel)
+          : true;
   const request = async (acknowledgeConfidential = false) => {
     setBusy(true);
     try {
@@ -33,7 +52,10 @@ function ExternalSend({ d }: { d: FollowupListItem }) {
         connectorId: selected.id,
         followupId: d.id,
         meetingId: meeting.id,
-        to: to.split(/[,\s]+/).map((x) => x.trim()).filter(Boolean).slice(0, 20),
+        to: selected.provider === 'gmail' ? recipients : [],
+        ...(selected.provider === 'gmail' || subject.trim() !== (d.subject ?? '') ? { subject: subject.trim() || undefined } : {}),
+        ...(slackBot && channel.trim() ? { channel: channel.trim() } : {}),
+        ...(selected.provider === 'hubspot' ? { objectType, objectId: objectId.trim() } : {}),
         acknowledgeConfidential,
       });
       toast.success(t('followup.sendRequested'));
@@ -47,17 +69,41 @@ function ExternalSend({ d }: { d: FollowupListItem }) {
     }
   };
   return (
-    <div className="inline-form">
-      <SelectField
-        label={t('followup.destination')}
-        value={selected.id}
-        onChange={(e) => setConnectorId(e.target.value)}
-        options={writable.map((c) => ({ value: c.id, label: `${c.displayName ?? c.name ?? c.provider} (${tm(`connectorProvider.${c.provider}`, c.provider)})` }))}
-      />
-      {selected.provider !== 'slack' && selected.provider !== 'webhook' && <TextField label={t('followup.recipients')} value={to} onChange={(e) => setTo(e.target.value)} placeholder="name@example.com" />}
-      <Button icon="send" onClick={() => request()} loading={busy}>
-        {t('followup.requestSend')}
-      </Button>
+    <div className="stack external-send">
+      <div className="inline-form">
+        <SelectField
+          label={t('followup.destination')}
+          value={selected.id}
+          onChange={(e) => setConnectorId(e.target.value)}
+          options={writable.map((c) => ({ value: c.id, label: `${c.displayName ?? c.name ?? c.provider} (${tm(`connectorProvider.${c.provider}`, c.provider)})` }))}
+        />
+        {selected.provider === 'gmail' && (
+          <TextField label={t('followup.recipients')} value={to} onChange={(e) => setTo(e.target.value)} placeholder="name@example.com" hint={t('followup.recipientsHint')} />
+        )}
+        {(selected.provider === 'gmail' || selected.provider === 'slack' || selected.provider === 'hubspot') && (
+          <TextField label={t('followup.subject')} value={subject} onChange={(e) => setSubject(e.target.value)} maxLength={200} required={selected.provider === 'gmail'} />
+        )}
+        {slackBot && (
+          <TextField label={t('followup.slackChannel')} value={channel} onChange={(e) => setChannel(e.target.value)} placeholder={cfg.defaultChannel ?? '#general'} hint={cfg.defaultChannel ? t('followup.slackDefaultChannel', { channel: cfg.defaultChannel }) : undefined} />
+        )}
+        {selected.provider === 'hubspot' && (
+          <>
+            <SelectField
+              label={t('followup.hubspotObjectType')}
+              value={objectType}
+              onChange={(e) => setObjectType(e.target.value as typeof objectType)}
+              options={(['contact', 'company', 'deal'] as const).map((v) => ({ value: v, label: t(`followup.hubspot.${v}` as MsgKey) }))}
+            />
+            <TextField label={t('followup.hubspotObjectId')} value={objectId} onChange={(e) => setObjectId(e.target.value)} inputMode="numeric" placeholder="123456789" />
+          </>
+        )}
+      </div>
+      {selected.provider === 'slack' && !slackBot && cfg.channelLabel && <p className="field-hint">{t('followup.slackWebhookTarget', { channel: cfg.channelLabel })}</p>}
+      <div>
+        <Button icon="send" onClick={() => request()} loading={busy} disabled={!ready}>
+          {t('followup.requestSend')}
+        </Button>
+      </div>
     </div>
   );
 }
