@@ -1,0 +1,29 @@
+{
+  "name": "meetledger",
+  "private": true,
+  "version": "1.0.0",
+  "description": "MeetLedger — 会議しただけで終わらせない。AI Meeting / Decision / Commitment / Follow-up platform",
+  "type": "module",
+  "workspaces": [
+    "packages/*",
+    "apps/server",
+    "apps/web"
+  ],
+  "scripts": {
+    "dev:server": "npm run dev -w @meetledger/server",
+    "dev:web": "npm run dev -w @meetledger/web",
+    "build": "npm run build -w @meetledger/web && npm run build -w @meetledger/server",
+    "typecheck": "npm run typecheck -w @meetledger/shared && npm run typecheck -w @meetledger/server && npm run typecheck -w @meetledger/web",
+    "test": "npm run test -w @meetledger/shared && npm run test -w @meetledger/server && npm run test -w @meetledger/web",
+    "pg:test": "bash scripts/pg-test.sh",
+    "e2e": "playwright test -c e2e/playwright.config.ts"
+  },
+  "engines": {
+    "node": ">=22.12"
+  },
+  "license": "UNLICENSED",
+  "devDependencies": {
+    "@playwright/test": "^1.63.0",
+    "typescript": "~5.9.3"
+  }
+}
