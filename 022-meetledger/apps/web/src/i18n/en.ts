@@ -1247,4 +1247,13 @@ export const en: Record<keyof typeof ja, string> = {
   'commitment.promisedBy': 'Promised by',
   'commitment.promisedTo': 'Promised to',
   'question.dueOptional': 'Decide by (optional)',
+  'decision.revoke': 'Revoke',
+  'decision.revokeTitle': 'Revoke this decision?',
+  'decision.revokeBody': 'The decision is not deleted: it stays in the ledger marked as revoked, and no longer appears among current decisions or in briefs.',
+  'decision.revokeConfirm': 'Revoke',
+  'decision.revoked': 'Decision revoked',
+  'decision.reactivate': 'Reinstate',
+  'decision.reactivateTitle': 'Reinstate this decision?',
+  'decision.reactivateBody': 'The revoked decision becomes a current decision again.',
+  'decision.reactivated': 'Decision reinstated',
 };

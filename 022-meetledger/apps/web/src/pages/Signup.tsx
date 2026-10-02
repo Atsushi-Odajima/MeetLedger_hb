@@ -41,7 +41,16 @@ export function SignupPage() {
         )}
         <TextField label={t('auth.name')} value={form.name} onChange={set('name')} required maxLength={100} autoComplete="name" autoFocus />
         <TextField label={t('auth.email')} type="email" value={form.email} onChange={set('email')} required autoComplete="username" />
-        <TextField label={t('auth.password')} type="password" value={form.password} onChange={set('password')} required minLength={10} autoComplete="new-password" hint={t('auth.passwordMin')} />
+        <TextField
+          label={t('auth.password')}
+          type="password"
+          value={form.password}
+          onChange={set('password')}
+          required
+          minLength={10}
+          autoComplete="new-password"
+          hint={t('auth.passwordMin')}
+        />
         <TextField label={t('setup.orgName')} value={form.orgName} onChange={set('orgName')} required maxLength={100} hint={t('setup.orgHint')} />
         <Alert tone="info" title={t('setup.privacyTitle')}>
           {t('setup.privacyBody')}

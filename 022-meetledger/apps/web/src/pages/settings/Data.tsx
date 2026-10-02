@@ -16,9 +16,12 @@ function FullExport() {
   const [includeMedia, setIncludeMedia] = useState(false);
   const [job, setJob] = useState<{ jobId: string; status: string; url?: string | null } | null>(null);
   const timer = useRef<ReturnType<typeof setInterval> | null>(null);
-  useEffect(() => () => {
-    if (timer.current) clearInterval(timer.current);
-  }, []);
+  useEffect(
+    () => () => {
+      if (timer.current) clearInterval(timer.current);
+    },
+    [],
+  );
   const start = async () => {
     try {
       const r = await api.post<{ jobId: string }>(a('/export/full'), { includeMedia });
@@ -49,7 +52,8 @@ function FullExport() {
       </Button>
       {job && (
         <p aria-live="polite">
-          {t('data.exportStatus')}: <Badge tone={job.status === 'ready' ? 'success' : job.status === 'failed' ? 'danger' : 'info'}>{tm(`exportStatus.${job.status}`, job.status)}</Badge>{' '}
+          {t('data.exportStatus')}:{' '}
+          <Badge tone={job.status === 'ready' ? 'success' : job.status === 'failed' ? 'danger' : 'info'}>{tm(`exportStatus.${job.status}`, job.status)}</Badge>{' '}
           {job.url && (
             <a href={job.url} className="btn btn-sm btn-primary" download>
               <Icon name="download" size={16} />

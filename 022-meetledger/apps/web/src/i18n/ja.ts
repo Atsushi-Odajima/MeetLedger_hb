@@ -1245,4 +1245,13 @@ export const ja = {
   'commitment.promisedBy': '約束した人',
   'commitment.promisedTo': '約束した相手',
   'question.dueOptional': 'いつまでに決めるか（任意）',
+  'decision.revoke': '取り消し（無効化）',
+  'decision.revokeTitle': 'この決定を取り消しますか？',
+  'decision.revokeBody': '取り消した決定は削除されず「取り消し」として記録に残ります。現在有効な決まったことの一覧やBriefには表示されなくなります。',
+  'decision.revokeConfirm': '取り消す',
+  'decision.revoked': '決定を取り消しました',
+  'decision.reactivate': '有効に戻す',
+  'decision.reactivateTitle': 'この決定を有効に戻しますか？',
+  'decision.reactivateBody': '取り消した決定を、現在有効な決まったことに戻します。',
+  'decision.reactivated': '決定を有効に戻しました',
 } as const;

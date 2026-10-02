@@ -20,7 +20,17 @@ export function focusFilter(kind: QuickFilter) {
  * Calm notice when the server searched only the newest meetings (time budget): says from which date on meetings were
  * searched and offers quick filters (period / project / person) to reach older ones.
  */
-export function TruncatedNotice({ truncated, searchedFrom, hint, onQuick = focusFilter }: { truncated?: boolean; searchedFrom?: string | null; hint?: string | null; onQuick?(k: QuickFilter): void }) {
+export function TruncatedNotice({
+  truncated,
+  searchedFrom,
+  hint,
+  onQuick = focusFilter,
+}: {
+  truncated?: boolean;
+  searchedFrom?: string | null;
+  hint?: string | null;
+  onQuick?(k: QuickFilter): void;
+}) {
   const { t, fmt, lang } = useI18n();
   if (!truncated) return null;
   return (

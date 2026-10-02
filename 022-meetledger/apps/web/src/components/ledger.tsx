@@ -11,7 +11,7 @@ import {
   type QuestionDto,
   type SourceRef,
 } from '@meetledger/shared';
-import { Badge, Button, CandidateBadge, AiBadge, Loading, ErrorView } from './ui';
+import { Badge, Button, CandidateBadge, AiBadge, Dialog, Loading, ErrorView } from './ui';
 import { Icon } from './Icon';
 import { useI18n, type MsgKey } from '../i18n';
 import { useWs } from '../state/workspace';
@@ -310,7 +310,13 @@ export function ActionItem({ action, onChange, showSource = true }: { action: Ac
       </div>
       <div className="item-side">
         {canEditFields && !editing && (
-          <button type="button" className="icon-btn icon-btn-sm" onClick={() => setEditing(true)} aria-label={t('ledger.editDueAssignee', { title: local.description })} title={t('ledger.editDueAssignee', { title: local.description })}>
+          <button
+            type="button"
+            className="icon-btn icon-btn-sm"
+            onClick={() => setEditing(true)}
+            aria-label={t('ledger.editDueAssignee', { title: local.description })}
+            title={t('ledger.editDueAssignee', { title: local.description })}
+          >
             <Icon name="edit" size={16} />
           </button>
         )}
@@ -358,13 +364,64 @@ export function DecisionHistory({ decisionId }: { decisionId: string }) {
             <p className="item-meta">
               <Badge tone={d.status === 'active' ? 'success' : 'neutral'}>{t(`decisionStatus.${d.status}` as MsgKey)}</Badge>
               <span>{fmt.date(d.decidedAt ?? d.createdAt)}</span>
-              {d.reason && <span>{t('decision.reason')}: {d.reason}</span>}
+              {d.reason && (
+                <span>
+                  {t('decision.reason')}: {d.reason}
+                </span>
+              )}
             </p>
             <SourceLink source={d.source} />
           </div>
         </li>
       ))}
     </ol>
+  );
+}
+
+/** 「取り消し（無効化）」 for a confirmed decision (status → revoked; the item and its history stay in the ledger), or 「有効に戻す」. */
+export function RevokeDecisionButton({ decision, onChanged }: { decision: DecisionDto; onChanged(d: DecisionDto): void }) {
+  const { t } = useI18n();
+  const toast = useToast();
+  const { a, can } = useWs();
+  const [open, setOpen] = useState(false);
+  const [busy, setBusy] = useState(false);
+  if (!can('member') || decision.reviewState !== 'confirmed' || (decision.status !== 'active' && decision.status !== 'revoked')) return null;
+  const revoking = decision.status === 'active';
+  const run = async () => {
+    setBusy(true);
+    try {
+      const r = await api.patch<DecisionDto>(a(`/decisions/${decision.id}`), { status: revoking ? 'revoked' : 'active' });
+      toast.success(t(revoking ? 'decision.revoked' : 'decision.reactivated'));
+      setOpen(false);
+      onChanged(r);
+    } catch (e) {
+      toast.error(e);
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <>
+      <Button size="sm" variant="ghost" icon={revoking ? 'x' : 'repeat'} onClick={() => setOpen(true)}>
+        {t(revoking ? 'decision.revoke' : 'decision.reactivate')}
+      </Button>
+      <Dialog
+        open={open}
+        onClose={() => setOpen(false)}
+        title={t(revoking ? 'decision.revokeTitle' : 'decision.reactivateTitle')}
+        footer={
+          <>
+            <Button onClick={() => setOpen(false)}>{t('common.cancel')}</Button>
+            <Button variant={revoking ? 'danger' : 'primary'} onClick={run} loading={busy}>
+              {t(revoking ? 'decision.revokeConfirm' : 'decision.reactivate')}
+            </Button>
+          </>
+        }
+      >
+        <p className="muted">{decision.text}</p>
+        <p>{t(revoking ? 'decision.revokeBody' : 'decision.reactivateBody')}</p>
+      </Dialog>
+    </>
   );
 }
 
@@ -436,7 +493,13 @@ export function CommitmentItem({ c: initial, actions }: { c: CommitmentDto; acti
       {(actions || (can('member') && c.status === 'open')) && (
         <div className="item-side">
           {can('member') && c.status === 'open' && !editing && (
-            <button type="button" className="icon-btn icon-btn-sm" onClick={() => setEditing(true)} aria-label={t('ledger.editDue', { title: c.description })} title={t('ledger.editDue', { title: c.description })}>
+            <button
+              type="button"
+              className="icon-btn icon-btn-sm"
+              onClick={() => setEditing(true)}
+              aria-label={t('ledger.editDue', { title: c.description })}
+              title={t('ledger.editDue', { title: c.description })}
+            >
               <Icon name="edit" size={16} />
             </button>
           )}

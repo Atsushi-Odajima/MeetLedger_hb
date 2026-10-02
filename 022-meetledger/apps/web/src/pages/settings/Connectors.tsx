@@ -76,7 +76,8 @@ function EventPreview({ preview, onClose, onImported }: { preview: PreviewState 
                 <Checkbox
                   label={
                     <>
-                      <strong>{ev.title}</strong> <span className="muted">{ev.allDay ? fmt.date(ev.start ?? ev.startsAt ?? null) : fmt.dateTime(ev.start ?? ev.startsAt ?? null)}</span>
+                      <strong>{ev.title}</strong>{' '}
+                      <span className="muted">{ev.allDay ? fmt.date(ev.start ?? ev.startsAt ?? null) : fmt.dateTime(ev.start ?? ev.startsAt ?? null)}</span>
                       {(ev.alreadyImported || ev.imported) && <Badge>{t('connectors.alreadyImported')}</Badge>}
                       {ev.recurring && <Badge>{t('connectors.recurring')}</Badge>}
                     </>
@@ -145,7 +146,17 @@ function IcsCard({ onPreview }: { onPreview(p: PreviewState): void }) {
   );
 }
 
-const FALLBACK_EVENTS = ['meeting.created', 'meeting.ready', 'decision.confirmed', 'decision.changed', 'action.created', 'action.updated', 'commitment.updated', 'followup.approved', 'external_write.executed'];
+const FALLBACK_EVENTS = [
+  'meeting.created',
+  'meeting.ready',
+  'decision.confirmed',
+  'decision.changed',
+  'action.created',
+  'action.updated',
+  'commitment.updated',
+  'followup.approved',
+  'external_write.executed',
+];
 
 function Webhooks() {
   const { t, fmt } = useI18n();
@@ -209,9 +220,7 @@ function Webhooks() {
                     <span className="item-meta">
                       {(w.events ?? []).join(', ')} {w.createdAt && `· ${fmt.date(w.createdAt)}`}
                       {w.lastDelivery && (
-                        <Badge tone={w.lastDelivery.status === 'delivered' ? 'success' : 'warn'}>
-                          {t('webhooks.lastDelivery', { status: w.lastDelivery.httpStatus })}
-                        </Badge>
+                        <Badge tone={w.lastDelivery.status === 'delivered' ? 'success' : 'warn'}>{t('webhooks.lastDelivery', { status: w.lastDelivery.httpStatus })}</Badge>
                       )}
                     </span>
                   </div>
@@ -248,7 +257,13 @@ function Webhooks() {
           <legend className="field-label">{t('webhooks.events')}</legend>
           <Checkbox label={t('webhooks.allEvents')} checked={events.includes('*')} onChange={(e) => toggle('*', e.target.checked)} />
           {known.map((ev) => (
-            <Checkbox key={ev} label={<code className="code-inline">{ev}</code>} checked={events.includes('*') || events.includes(ev)} disabled={events.includes('*')} onChange={(e) => toggle(ev, e.target.checked)} />
+            <Checkbox
+              key={ev}
+              label={<code className="code-inline">{ev}</code>}
+              checked={events.includes('*') || events.includes(ev)}
+              disabled={events.includes('*')}
+              onChange={(e) => toggle(ev, e.target.checked)}
+            />
           ))}
         </fieldset>
         <Button type="submit" disabled={!url.trim() || !events.length}>
@@ -374,7 +389,15 @@ function WriteConnectorForm({ onCreated, gmailAvailable }: { onCreated(): void; 
               onChange={(e) => setSecret(e.target.value)}
               required
               autoComplete="off"
-              placeholder={kind === 'slack_webhook' ? 'https://hooks.slack.com/services/…' : kind === 'slack_bot' ? 'xoxb-…' : kind === 'webhook' ? 'https://example.com/hooks/meetledger' : undefined}
+              placeholder={
+                kind === 'slack_webhook'
+                  ? 'https://hooks.slack.com/services/…'
+                  : kind === 'slack_bot'
+                    ? 'xoxb-…'
+                    : kind === 'webhook'
+                      ? 'https://example.com/hooks/meetledger'
+                      : undefined
+              }
               hint={kind === 'webhook' ? t('connectors.webhookHint') : t('connectors.secretStored')}
             />
             {(kind === 'slack_webhook' || kind === 'slack_bot') && (
@@ -515,7 +538,12 @@ export function ConnectorsSettings() {
           <Button icon="calendar" onClick={() => connect('google_calendar')} loading={busy === 'google_calendar'} disabled={!can('member') || available.google_calendar === false}>
             {t('connectors.google')}
           </Button>
-          <Button icon="calendar" onClick={() => connect('microsoft_calendar')} loading={busy === 'microsoft_calendar'} disabled={!can('member') || available.microsoft_calendar === false}>
+          <Button
+            icon="calendar"
+            onClick={() => connect('microsoft_calendar')}
+            loading={busy === 'microsoft_calendar'}
+            disabled={!can('member') || available.microsoft_calendar === false}
+          >
             {t('connectors.microsoft')}
           </Button>
         </div>

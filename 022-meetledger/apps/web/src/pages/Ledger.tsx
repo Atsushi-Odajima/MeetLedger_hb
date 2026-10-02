@@ -3,7 +3,8 @@ import { useSearchParams } from 'react-router-dom';
 import { ACTION_STATUSES, COMMITMENT_STATUSES, QUESTION_STATUSES, type ActionDto, type CommitmentDto, type DecisionDto, type QuestionDto } from '@meetledger/shared';
 import { Async, Button, Checkbox, Dialog, EmptyState, LoadMore, PageHeader, SelectField, TabPanel, Tabs, TextArea } from '../components/ui';
 import { Icon } from '../components/Icon';
-import { ActionItem, CommitmentItem, DecisionItem, QuestionItem } from '../components/ledger';
+import { ActionItem, CommitmentItem, DecisionItem, QuestionItem, RevokeDecisionButton } from '../components/ledger';
+import { ManualAddDialog, type ManualKind } from '../components/ManualAdd';
 import { useI18n, type MsgKey } from '../i18n';
 import { useWs } from '../state/workspace';
 import { useToast } from '../state/toast';
@@ -78,10 +79,15 @@ function Decisions() {
                     key={x.id}
                     decision={x}
                     actions={
-                      can('member') && x.status === 'active' && x.reviewState === 'confirmed' ? (
-                        <Button size="sm" icon="edit" onClick={() => setSupersede(x)}>
-                          {t('decision.supersede')}
-                        </Button>
+                      can('member') && x.reviewState === 'confirmed' && (x.status === 'active' || x.status === 'revoked') ? (
+                        <div className="button-row">
+                          {x.status === 'active' && (
+                            <Button size="sm" icon="edit" onClick={() => setSupersede(x)}>
+                              {t('decision.supersede')}
+                            </Button>
+                          )}
+                          <RevokeDecisionButton decision={x} onChanged={() => state.reload()} />
+                        </div>
                       ) : undefined
                     }
                   />
@@ -168,6 +174,7 @@ function Commitments() {
   const [direction, setDirection] = useState<'all' | 'mine' | 'theirs'>(initialDir === 'mine' || initialDir === 'theirs' ? initialDir : 'all');
   const [status, setStatus] = useState('open');
   const [overdueOnly, setOverdueOnly] = useState(params.get('overdue') === '1');
+  const [adding, setAdding] = useState<ManualKind | null>(null);
   const state = usePaged<CommitmentDto>(a(`/commitments${qs({ direction, status, overdue: overdueOnly ? 1 : undefined })}`), 'commitments');
   const update = async (c: CommitmentDto, s: string) => {
     try {
@@ -195,6 +202,11 @@ function Commitments() {
         />
         <Checkbox label={t('ledger.overdueOnly')} checked={overdueOnly} onChange={(e) => setOverdueOnly(e.target.checked)} />
         <div className="filters-end">
+          {can('member') && (
+            <Button size="sm" icon="plus" onClick={() => setAdding('commitment')}>
+              {t('ledger.addBtn.commitment')}
+            </Button>
+          )}
           <ExportLink href={a('/commitments/export?format=csv')} label="CSV" />
         </div>
       </div>
@@ -230,6 +242,7 @@ function Commitments() {
           );
         }}
       </Async>
+      <ManualAddDialog kind={adding} onClose={() => setAdding(null)} onAdded={state.reload} />
     </>
   );
 }
@@ -241,6 +254,7 @@ function Questions() {
   const [status, setStatus] = useState('open');
   const state = usePaged<QuestionDto>(a(`/questions${qs({ status })}`), 'questions');
   const [answering, setAnswering] = useState<QuestionDto | null>(null);
+  const [adding, setAdding] = useState<ManualKind | null>(null);
   const [answer, setAnswer] = useState('');
   const update = async (q: QuestionDto, body: Record<string, unknown>) => {
     try {
@@ -262,6 +276,13 @@ function Questions() {
           onChange={(e) => setStatus(e.target.value)}
           options={[{ value: '', label: t('common.all') }, ...QUESTION_STATUSES.map((s) => ({ value: s, label: t(`questionStatus.${s}` as MsgKey) }))]}
         />
+        {can('member') && (
+          <div className="filters-end">
+            <Button size="sm" icon="plus" onClick={() => setAdding('question')}>
+              {t('ledger.addBtn.question')}
+            </Button>
+          </div>
+        )}
       </div>
       <Async state={state}>
         {() => {
@@ -320,6 +341,7 @@ function Questions() {
         <p className="muted">{answering?.question}</p>
         <TextArea label={t('question.answer')} value={answer} onChange={(e) => setAnswer(e.target.value)} rows={3} />
       </Dialog>
+      <ManualAddDialog kind={adding} onClose={() => setAdding(null)} onAdded={state.reload} />
     </>
   );
 }

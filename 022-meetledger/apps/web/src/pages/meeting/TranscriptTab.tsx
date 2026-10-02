@@ -288,7 +288,13 @@ function SegmentRow({
       </div>
       <div className="seg-actions">
         {canEdit && !editing && (
-          <button type="button" className="icon-btn icon-btn-sm" aria-label={t('transcript.edit', { time: msToClock(s.startMs) })} title={t('common.edit')} onClick={() => setEditing(true)}>
+          <button
+            type="button"
+            className="icon-btn icon-btn-sm"
+            aria-label={t('transcript.edit', { time: msToClock(s.startMs) })}
+            title={t('common.edit')}
+            onClick={() => setEditing(true)}
+          >
             <Icon name="edit" size={16} />
           </button>
         )}
@@ -450,7 +456,10 @@ export function TranscriptTab() {
             onChange={(e) => setVersion(e.target.value)}
             options={[
               { value: '', label: t('transcript.current') },
-              ...versionList.map((v) => ({ value: String(v.version), label: `v${v.version}${v.provider ? ` · ${v.provider}` : ''}${v.createdAt ? ` · ${fmt.date(v.createdAt)}` : ''}` })),
+              ...versionList.map((v) => ({
+                value: String(v.version),
+                label: `v${v.version}${v.provider ? ` · ${v.provider}` : ''}${v.createdAt ? ` · ${fmt.date(v.createdAt)}` : ''}`,
+              })),
             ]}
           />
         )}

@@ -3,7 +3,7 @@ import { Link } from 'react-router-dom';
 import type { ActionDto, CommitmentDto, ContradictionDto, DecisionDto, QuestionDto } from '@meetledger/shared';
 import { Alert, Async, Badge, Button, Card } from '../../components/ui';
 import { ManualAddDialog, type ManualKind } from '../../components/ManualAdd';
-import { ActionItem, CommitmentItem, DecisionItem, QuestionItem } from '../../components/ledger';
+import { ActionItem, CommitmentItem, DecisionItem, QuestionItem, RevokeDecisionButton } from '../../components/ledger';
 import { useI18n } from '../../i18n';
 import { useWs } from '../../state/workspace';
 import { useApi } from '../../lib/hooks';
@@ -57,7 +57,7 @@ export function MeetingLedgerTab() {
                 {decisions.length ? (
                   <ul className="items">
                     {decisions.map((d) => (
-                      <DecisionItem key={d.id} decision={d} />
+                      <DecisionItem key={d.id} decision={d} actions={meeting.canEdit ? <RevokeDecisionButton decision={d} onChanged={() => state.reload()} /> : undefined} />
                     ))}
                   </ul>
                 ) : (

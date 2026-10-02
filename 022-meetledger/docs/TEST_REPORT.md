@@ -10,11 +10,11 @@ ffmpeg, Chromium 1194（Playwright）。**Windows / macOS / iPhone / Android 実
 | local-asr（実モデル 4 件含む） | `cd packages/local-asr && npx vitest run` | ✅ 10/10 |
 | server（実 PostgreSQL・RLS・ジョブ・全モジュール） | `cd apps/server && npx vitest run` | ✅ **203/203（21 files）** |
 | server typecheck | `npx tsc -p apps/server/tsconfig.json` | ✅ 0 errors |
-| web（unit） | `npm test -w @meetledger/web` | __WEB_UNIT__ |
-| web build / typecheck | `npm run build -w @meetledger/web` / `tsc` | __WEB_BUILD__ |
+| web（unit） | `npm test -w @meetledger/web` | ✅ 46/46（API client CSRF、offline outbox/conflict、mime 選択、i18n 完全性 等） |
+| web build / typecheck | `npm run build -w @meetledger/web` / `tsc` | ✅ build（JS 約 630KB / gzip 181KB）・typecheck 0 errors |
 | desktop（unit） | `cd apps/desktop && npx vitest run` | ✅ 58/58（typecheck 0 errors） |
 | desktop smoke（Electron, xvfb） | `xvfb-run -a npm run smoke` | ✅ 66/66 checks（desktop engineer 実施）、packaged Linux build 6/6 |
-| E2E（Playwright, Chromium） | `npm run e2e` | __E2E__ |
+| E2E（Playwright, Chromium） | `npm run e2e` | ✅ **16/16**（45.9 秒、3 workers）。web engineer による 2 連続合格 + lead による最終実行 |
 | 依存脆弱性 | `npm audit`（root / desktop） | ✅ 0 vulnerabilities |
 | 本番ビルド起動 | `npm run build` → `NODE_ENV=production node apps/server/dist/index.js` | ✅ 自動 migration、PWA/manifest/SW/SPA 配信、CSP 等ヘッダ、setup→sample→meeting 作成、CSRF なし POST=403、`dist/cli` backup |
 
@@ -53,7 +53,20 @@ ffmpeg, Chromium 1194（Playwright）。**Windows / macOS / iPhone / Android 実
 | 30 | Review Inbox Accept/Edit/Reject | ledger.test.ts | ✅ |
 
 ## 3. E2E（§39）
-__E2E_TABLE__
+| # | シナリオ | 結果 |
+|---|---|---|
+| E2E-1 | Calendar(ICS) Meeting → Pre-brief → Capture（同意→WAV upload）→ Transcript → Summary → Review Inbox → Decision/Action/Commitment 確定 → Follow-up（確定項目のみ）→ 次回 Brief | ✅ |
+| E2E-2 | 「公開日は10月にします」→ 次回「11月に変更します」→ Contradiction「変更ですか？」→ 人間が確認 → 旧 Decision は Superseded として履歴に残る | ✅ |
+| E2E-3 | owner なし Action → 自動割当されず候補のまま → 人間が担当+期限 → followup.tick で期限リマインド → Done | ✅ |
+| E2E-4 | 自分の約束「資料をお送りします」→ Overdue → 次回 Brief「自分の未完了の約束」 | ✅ |
+| E2E-5 | People → Person timeline + 検索、出典（Meeting 名/日付/timestamp リンク） | ✅ |
+| E2E-6 | Confidential（AI OFF）→ 偽の外部 AI/文字起こしサーバへの要求 0 件（陽性対照: cloud Meeting では要求あり） | ✅ |
+| E2E-7 | Local 文字起こし（実 sherpa-onnx SenseVoice、ja.wav）→ Transcript「…弁当制…」、外部要求 0、local-rules 要約 | ✅ |
+| E2E-8 | iPhone 15 / Pixel 8（Chromium エミュレーション）: PWA manifest/SW、Upcoming/Brief/My Actions、offline 表示、「未同期」→ 復帰後同期、PC 側で Review | ✅（実機・WebKit 未検証） |
+| E2E-9 | 全データ export → 新テナントの空 Workspace へ restore → Meeting/Decision(supersede link)/Action/Commitment の関係一致 | ✅ |
+| smoke | 初回セットアップ・メモ自動保存・offline メモ競合（新しいサーバ版を上書きしない）・ライセンス画面・書込み Connector（秘密情報を再表示しない）・手動 Ledger 追加・Decision 取り消し | ✅ |
+
+各 spec ファイルは独自のサーバ・新規 DB・一時ストレージで実行（`e2e/README.md`）。外部送信なしの検証は spec 内の偽 HTTP サーバの要求カウンタ + API の external_calls で行う。
 
 ## 4. 性能（§40）— 販売保証値ではない
 ### 4.1 生成データ（scripts/perf/generate.mjs, 生成 6.2 分）

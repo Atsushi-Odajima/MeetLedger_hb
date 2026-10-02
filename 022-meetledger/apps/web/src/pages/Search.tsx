@@ -101,7 +101,12 @@ export function SearchPage() {
           <fieldset className="check-row">
             <legend className="field-label">{t('search.types')}</legend>
             {SEARCH_ENTITY_TYPES.map((ty) => (
-              <Checkbox key={ty} label={tm(`entity.${ty}`, ty)} checked={types.includes(ty)} onChange={(e) => setTypes((s) => (e.target.checked ? [...s, ty] : s.filter((x) => x !== ty)))} />
+              <Checkbox
+                key={ty}
+                label={tm(`entity.${ty}`, ty)}
+                checked={types.includes(ty)}
+                onChange={(e) => setTypes((s) => (e.target.checked ? [...s, ty] : s.filter((x) => x !== ty)))}
+              />
             ))}
           </fieldset>
           <div className="filters">

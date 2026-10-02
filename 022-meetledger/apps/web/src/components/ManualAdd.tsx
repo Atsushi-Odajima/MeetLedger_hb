@@ -39,8 +39,7 @@ export function ManualAddDialog({
   const [busy, setBusy] = useState(false);
   if (!kind) return null;
   const ctx = meeting ? { meetingId: meeting.id } : {};
-  const party = (v: string, k: 'promisedBy' | 'promisedTo') =>
-    v === ME && me ? { [`${k}UserId`]: me.user.id } : v ? { [`${k}PersonId`]: v } : {};
+  const party = (v: string, k: 'promisedBy' | 'promisedTo') => (v === ME && me ? { [`${k}UserId`]: me.user.id } : v ? { [`${k}PersonId`]: v } : {});
   const reset = () => {
     setText('');
     setAssignee('');
@@ -54,7 +53,13 @@ export function ManualAddDialog({
     try {
       if (kind === 'decision') await api.post(a('/decisions'), { text: text.trim(), ...ctx, ...(meeting?.projectId ? { projectId: meeting.projectId } : {}) });
       else if (kind === 'action')
-        await api.post(a('/actions'), { description: text.trim(), ...ctx, ...(meeting?.projectId ? { projectId: meeting.projectId } : {}), assigneePersonId: assignee || null, dueDate: due || null });
+        await api.post(a('/actions'), {
+          description: text.trim(),
+          ...ctx,
+          ...(meeting?.projectId ? { projectId: meeting.projectId } : {}),
+          assigneePersonId: assignee || null,
+          dueDate: due || null,
+        });
       else if (kind === 'commitment')
         await api.post(a('/commitments'), {
           description: text.trim(),

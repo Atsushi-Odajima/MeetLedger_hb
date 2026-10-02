@@ -113,8 +113,16 @@ export function PeoplePage() {
                     </Link>
                     <div className="row-meta">
                       {[x.organization, x.roleTitle].filter(Boolean).join(' · ')}
-                      {x.lastMeetingAt && <span>{t('people.lastMeeting')}: {fmt.date(x.lastMeetingAt)}</span>}
-                      {x.nextMeetingAt && <span>{t('people.nextMeeting')}: {fmt.date(x.nextMeetingAt)}</span>}
+                      {x.lastMeetingAt && (
+                        <span>
+                          {t('people.lastMeeting')}: {fmt.date(x.lastMeetingAt)}
+                        </span>
+                      )}
+                      {x.nextMeetingAt && (
+                        <span>
+                          {t('people.nextMeeting')}: {fmt.date(x.nextMeetingAt)}
+                        </span>
+                      )}
                       {!!x.openCommitments && <Badge tone="info">{t('people.openCommitments', { n: x.openCommitments })}</Badge>}
                       {x.userId && <Badge>{t('people.member')}</Badge>}
                     </div>
@@ -184,7 +192,9 @@ export function PersonPage() {
           <PageHeader
             title={x.name}
             subtitle={[x.organization, x.roleTitle, x.email].filter(Boolean).join(' · ')}
-            badges={x.tags?.map((tag) => <Badge key={tag}>#{tag}</Badge>)}
+            badges={x.tags?.map((tag) => (
+              <Badge key={tag}>#{tag}</Badge>
+            ))}
             actions={
               can('member') && (
                 <>
@@ -208,7 +218,13 @@ export function PersonPage() {
                     <MemoryView
                       data={{ ...(Array.isArray(tl) ? {} : (tl as MemoryDto)), timeline: timeline.items ?? [], events: undefined }}
                       timelineFooter={
-                        <LoadMore shown={timeline.items?.length ?? 0} hasMore={timeline.hasMore} loading={timeline.loadingMore} error={timeline.moreError} onMore={timeline.loadMore} />
+                        <LoadMore
+                          shown={timeline.items?.length ?? 0}
+                          hasMore={timeline.hasMore}
+                          loading={timeline.loadingMore}
+                          error={timeline.moreError}
+                          onMore={timeline.loadMore}
+                        />
                       }
                     />
                   )}
@@ -263,7 +279,14 @@ export function PersonPage() {
           <PersonDialog
             open={editing}
             title={t('people.edit')}
-            initial={{ name: x.name, organization: x.organization ?? '', roleTitle: x.roleTitle ?? '', email: x.email ?? '', tags: (x.tags ?? []).join(', '), notes: x.notes ?? '' }}
+            initial={{
+              name: x.name,
+              organization: x.organization ?? '',
+              roleTitle: x.roleTitle ?? '',
+              email: x.email ?? '',
+              tags: (x.tags ?? []).join(', '),
+              notes: x.notes ?? '',
+            }}
             onClose={() => setEditing(false)}
             onSave={async (f) => {
               try {

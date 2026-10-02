@@ -109,7 +109,11 @@ export function Timeline({ events }: { events: TimelineEvent[] }) {
             <span className="timeline-date">{fmt.date(e.at ?? e.date ?? null)}</span>
             <div>
               <Badge tone={type === 'decision' ? 'success' : type === 'note' ? 'neutral' : 'info'}>{tm(`entity.${type}`, type)}</Badge>{' '}
-              {type === 'meeting' && meetingId ? <Link to={p(`/meetings/${meetingId}`)}>{eventText(e, t, tm)}</Link> : <span className={type === 'note' ? 'pre' : undefined}>{eventText(e, t, tm)}</span>}
+              {type === 'meeting' && meetingId ? (
+                <Link to={p(`/meetings/${meetingId}`)}>{eventText(e, t, tm)}</Link>
+              ) : (
+                <span className={type === 'note' ? 'pre' : undefined}>{eventText(e, t, tm)}</span>
+              )}
               {e.status && type !== 'meeting' && type !== 'note' && <span className="muted"> · {tm(`${type}Status.${e.status}`, e.status)}</span>}
               {e.author && <span className="muted"> · {e.author}</span>}
               {type !== 'meeting' && meetingId && (
@@ -143,7 +147,15 @@ export function MemoryView({ data, timelineFooter }: { data: MemoryDto; timeline
   const timeline = data.timeline ?? data.events ?? [];
   const stats = data.stats && typeof data.stats === 'object' ? Object.entries(data.stats).filter(([, v]) => typeof v === 'number') : [];
   const empty =
-    !data.summary && !decisions.length && !actions.length && !commitments.length && !questions.length && !changes.length && !meetings.length && !upcoming.length && !timeline.length;
+    !data.summary &&
+    !decisions.length &&
+    !actions.length &&
+    !commitments.length &&
+    !questions.length &&
+    !changes.length &&
+    !meetings.length &&
+    !upcoming.length &&
+    !timeline.length;
   if (empty) return <p className="muted calm">{t('memory.empty')}</p>;
   return (
     <div className="stack">

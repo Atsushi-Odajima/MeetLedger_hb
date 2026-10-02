@@ -28,7 +28,12 @@ function ExternalSend({ d }: { d: FollowupListItem }) {
   const [objectType, setObjectType] = useState<'contact' | 'company' | 'deal'>('contact');
   const [objectId, setObjectId] = useState('');
   const [busy, setBusy] = useState(false);
-  if (!writable.length) return <p className="field-hint">{t('followup.noDestinations')} <Link to={p('/settings/connectors')}>{t('settings.connectors')}</Link></p>;
+  if (!writable.length)
+    return (
+      <p className="field-hint">
+        {t('followup.noDestinations')} <Link to={p('/settings/connectors')}>{t('settings.connectors')}</Link>
+      </p>
+    );
   const selected = writable.find((c) => c.id === connectorId) ?? writable[0];
   const cfg = (selected.config ?? {}) as { mode?: string; defaultChannel?: string | null; channelLabel?: string | null };
   const slackBot = selected.provider === 'slack' && cfg.mode === 'bot';
@@ -84,7 +89,13 @@ function ExternalSend({ d }: { d: FollowupListItem }) {
           <TextField label={t('followup.subject')} value={subject} onChange={(e) => setSubject(e.target.value)} maxLength={200} required={selected.provider === 'gmail'} />
         )}
         {slackBot && (
-          <TextField label={t('followup.slackChannel')} value={channel} onChange={(e) => setChannel(e.target.value)} placeholder={cfg.defaultChannel ?? '#general'} hint={cfg.defaultChannel ? t('followup.slackDefaultChannel', { channel: cfg.defaultChannel }) : undefined} />
+          <TextField
+            label={t('followup.slackChannel')}
+            value={channel}
+            onChange={(e) => setChannel(e.target.value)}
+            placeholder={cfg.defaultChannel ?? '#general'}
+            hint={cfg.defaultChannel ? t('followup.slackDefaultChannel', { channel: cfg.defaultChannel }) : undefined}
+          />
         )}
         {selected.provider === 'hubspot' && (
           <>
@@ -196,12 +207,21 @@ function Draft({ d, onChange }: { d: FollowupListItem; onChange(): void }) {
         )}
         <div className="button-row">
           {editable && dirty && (
-            <Button variant="primary" loading={busy === 'save'} onClick={() => run('save', () => api.patch(a(`/followups/${d.id}`), { subject: subject || null, body, version: d.version ?? 0 }), 'common.saved')}>
+            <Button
+              variant="primary"
+              loading={busy === 'save'}
+              onClick={() => run('save', () => api.patch(a(`/followups/${d.id}`), { subject: subject || null, body, version: d.version ?? 0 }), 'common.saved')}
+            >
               {t('common.save')}
             </Button>
           )}
           {editable && !dirty && d.status === 'draft' && (
-            <Button variant="primary" icon="check" loading={busy === 'approve'} onClick={() => run('approve', () => api.post(a(`/followups/${d.id}/approve`), { version: d.version }), 'followup.approved')}>
+            <Button
+              variant="primary"
+              icon="check"
+              loading={busy === 'approve'}
+              onClick={() => run('approve', () => api.post(a(`/followups/${d.id}/approve`), { version: d.version }), 'followup.approved')}
+            >
               {t('followup.approve')}
             </Button>
           )}

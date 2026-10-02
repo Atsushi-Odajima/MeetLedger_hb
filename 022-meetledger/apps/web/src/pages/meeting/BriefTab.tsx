@@ -28,7 +28,14 @@ interface BriefDto {
   openActions?: ActionDto[];
   commitments?: { mine?: CommitmentDto[]; theirs?: CommitmentDto[]; others?: CommitmentDto[] } | CommitmentDto[];
   openQuestions?: QuestionDto[];
-  personNotes?: { personId: string; name: string; organization: string | null; roleTitle: string | null; profileNote: string | null; notes: { id: string; body: string; author: string | null; createdAt: string | null }[] }[];
+  personNotes?: {
+    personId: string;
+    name: string;
+    organization: string | null;
+    roleTitle: string | null;
+    profileNote: string | null;
+    notes: { id: string; body: string; author: string | null; createdAt: string | null }[];
+  }[];
   recentChanges?: DecisionChangeDto[];
   more?: { decisions?: number; actions?: number; commitments?: number; questions?: number };
   /** Exact totals (lists are capped). */
@@ -84,7 +91,8 @@ export function BriefTab() {
           const others = (b.participants ?? []).filter((x) => !x.isMe);
           const more = (n?: number) => (n ? <p className="field-hint">{t('brief.more', { n })}</p> : null);
           const cnt = (k: keyof NonNullable<BriefDto['counts']>, shown: number) => Math.max(shown, b.counts?.[k] ?? 0);
-          const commitmentMore = (k: 'commitmentsMine' | 'commitmentsTheirs' | 'commitmentsOthers', shown: number) => (b.counts?.[k] !== undefined ? more(Math.max(0, (b.counts[k] ?? 0) - shown)) : null);
+          const commitmentMore = (k: 'commitmentsMine' | 'commitmentsTheirs' | 'commitmentsOthers', shown: number) =>
+            b.counts?.[k] !== undefined ? more(Math.max(0, (b.counts[k] ?? 0) - shown)) : null;
           return (
             <>
               {b.firstMeeting && (
@@ -172,7 +180,10 @@ export function BriefTab() {
                           {x.profileNote && <p className="pre muted">{x.profileNote}</p>}
                           {x.notes.map((n) => (
                             <p key={n.id} className="pre">
-                              {n.body} <span className="muted">— {n.author ?? ''} {fmt.date(n.createdAt)}</span>
+                              {n.body}{' '}
+                              <span className="muted">
+                                — {n.author ?? ''} {fmt.date(n.createdAt)}
+                              </span>
                             </p>
                           ))}
                         </div>

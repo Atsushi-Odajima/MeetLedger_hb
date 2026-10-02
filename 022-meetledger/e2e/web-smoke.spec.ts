@@ -146,3 +146,44 @@ test('settings: license screen and write connectors (credentials are never shown
   expect(api).not.toContain('e2eSecretPart');
   expect(api).not.toContain('pat-na1-e2e-secret-token');
 });
+
+test('manual ledger entries (約束を追加 / Open Questionを追加) and decision revoke', async ({ page, request }) => {
+  const status = await (await request.get('/api/setup/status')).json();
+  await signIn(page, !!status.needsSetup);
+  const wsPath = new URL(page.url()).pathname.match(/^\/w\/[0-9a-f-]{36}/)![0];
+  const ctxReq = page.context().request;
+  const me = await (await ctxReq.get('/api/me')).json();
+
+  // 約束を追加: promised by me, with a due date
+  await page.goto(`${wsPath}/ledger?tab=commitments`);
+  await page.getByRole('button', { name: '約束を追加' }).click();
+  const dlg = page.getByRole('dialog', { name: '約束（Commitment）を追加' });
+  await dlg.getByLabel('約束の内容').fill('E2E 見積書をお送りします');
+  await expect(dlg.getByLabel('約束した人')).toHaveValue('__me__');
+  await dlg.getByLabel('期限').fill('2030-01-31');
+  await dlg.getByRole('button', { name: '追加', exact: true }).click();
+  await expect(dlg).toBeHidden();
+  const row = page.locator('ul.items > li').filter({ hasText: 'E2E 見積書をお送りします' });
+  await expect(row).toContainText('自分');
+
+  // Open Questionを追加
+  await page.getByRole('tab', { name: /未解決の問い/ }).click();
+  await page.getByRole('button', { name: 'Open Questionを追加' }).click();
+  const q = page.getByRole('dialog', { name: '未解決の問い（Open Question）を追加' });
+  await q.getByLabel('問い').fill('E2E 予算の上限はいくらか');
+  await q.getByRole('button', { name: '追加', exact: true }).click();
+  await expect(page.locator('ul.items > li').filter({ hasText: 'E2E 予算の上限はいくらか' })).toBeVisible();
+
+  // 取り消し（無効化）: confirmed decision -> revoked, kept in the ledger
+  const created = await ctxReq.post(`/api${wsPath}/decisions`, { data: { text: 'E2E 取り消す決定' }, headers: { 'x-csrf-token': me.csrfToken, origin: new URL(page.url()).origin } });
+  expect(created.ok()).toBe(true);
+  await page.goto(`${wsPath}/ledger?tab=decisions`);
+  const d = page.locator('ul.items > li').filter({ hasText: 'E2E 取り消す決定' });
+  await d.getByRole('button', { name: '取り消し（無効化）' }).click();
+  const confirm = page.getByRole('dialog', { name: 'この決定を取り消しますか？' });
+  await confirm.getByRole('button', { name: '取り消す', exact: true }).click();
+  await expect(confirm).toBeHidden();
+  await expect(page.locator('ul.items > li').filter({ hasText: 'E2E 取り消す決定' })).toHaveCount(0); // not current any more
+  await page.getByLabel('表示').selectOption({ label: 'すべて' });
+  await expect(page.locator('ul.items > li').filter({ hasText: 'E2E 取り消す決定' })).toContainText('取り消し');
+});
