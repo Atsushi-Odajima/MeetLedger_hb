@@ -13,7 +13,7 @@ import { hardenWebContents, installSessionSecurity, type SecurityDeps } from './
 import { MeetLedgerApi, type FetchFn } from './apiClient';
 import { AsrError, AsrHost } from './asrHost';
 import { RecordingStore } from './recordingStore';
-import { RecorderSession, type RawTranscript } from './recorderSession';
+import { RecorderSession, type AsrProgress, type RawTranscript } from './recorderSession';
 import { RecordingIndicator } from './indicator';
 import { registerIpc } from './ipc';
 import type { CatalogResult, ProbeResult } from '../worker/protocol';
@@ -195,7 +195,11 @@ async function downloadModel(wc: WebContents, id: string) {
   }
 }
 
-async function transcribeWav(wavPath: string, opts: { model?: string; language?: string; diarization?: boolean }): Promise<RawTranscript> {
+async function transcribeWav(
+  wavPath: string,
+  opts: { model?: string; language?: string; diarization?: boolean },
+  onProgress?: (p: AsrProgress) => void,
+): Promise<RawTranscript> {
   let model = opts.model ?? config.model ?? undefined;
   if (!model) {
     const installed = (await listModels()).filter((m) => m.installed && !m.diarization);
@@ -203,14 +207,14 @@ async function transcribeWav(wavPath: string, opts: { model?: string; language?:
     model = installed[0]!.id;
   }
   const language = opts.language && opts.language !== 'auto' ? opts.language : config.language;
-  return asr.call<RawTranscript>('transcribe', {
-    wavPath,
-    modelDir,
-    model,
-    numThreads: config.numThreads,
-    diarization: opts.diarization ?? config.diarization,
-    language,
-  });
+  return asr.call<RawTranscript>(
+    'transcribe',
+    { wavPath, modelDir, model, numThreads: config.numThreads, diarization: opts.diarization ?? config.diarization, language },
+    (args) => {
+      const a = args[0];
+      if (onProgress && a && typeof a === 'object') onProgress(a as AsrProgress);
+    },
+  );
 }
 
 // ---------------------------------------------------------------- server API (shares the main window's cookies)
@@ -231,7 +235,7 @@ const indicator = new RecordingIndicator({
 const recSession = new RecorderSession({
   api,
   store,
-  transcribeWav: (p, o) => transcribeWav(p, o),
+  transcribeWav: (p, o, onProgress) => transcribeWav(p, o, onProgress),
   emit: (ownerId, state: RecState) => {
     const w = recorderWindow;
     if (w && !w.isDestroyed() && w.webContents.id === ownerId) w.webContents.send(CH.evtRecState, state);

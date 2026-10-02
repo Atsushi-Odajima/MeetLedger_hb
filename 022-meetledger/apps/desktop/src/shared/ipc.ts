@@ -101,6 +101,8 @@ export interface ModelProgress {
   receivedBytes: number | null;
   totalBytes: number | null;
   fraction: number | null;
+  /** local-asr phases: download | verify | extract | skip | done */
+  phase?: string;
   done?: boolean;
   error?: string;
 }

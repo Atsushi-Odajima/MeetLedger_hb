@@ -6,7 +6,7 @@
 
 const args = Object.fromEntries(process.argv.slice(2).reduce((a, v, i, arr) => (v.startsWith('--') ? [...a, [v.slice(2), arr[i + 1]]] : a), []));
 const USD_JPY = Number(args['usd-jpy'] ?? 150); // FX assumption, not a sourced price
-const LOCAL_RTF = Number(args.rtf ?? 0.1); // local ASR real-time factor (CPU seconds per audio second); measured value goes here
+const LOCAL_RTF = Number(args.rtf ?? 0.21); // measured 2026-10-02: SenseVoice int8 + diarization on 4 vCPU Xeon ≈ 0.21 (ASR only ≈ 0.12)
 
 const P = {
   transcription: {

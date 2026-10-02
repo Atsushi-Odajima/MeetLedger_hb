@@ -17,16 +17,21 @@ export interface TranscribeFileOptions {
   numThreads?: number;
   diarization?: boolean;
   language?: string;
+  onProgress?: (p: { phase: string; done: number; total: number }) => void;
 }
 
 export interface TranscribeFileResult {
   segments: LocalAsrSegment[];
   model: string;
-  language: string;
-  diarization: boolean;
+  /** packages/local-asr returns string | null */
+  language: string | null;
+  /** agreed contract: boolean; packages/local-asr returns 'provider' | 'none' — the worker accepts both */
+  diarization: boolean | 'provider' | 'none';
+  diarizationError?: string;
 }
 
 export declare const MODEL_CATALOG: unknown;
 export declare function checkModels(modelDir: string, modelId: string): unknown;
+export declare function sherpaStatus(): { ok: boolean; reason?: string; version?: string };
 export declare function downloadModel(id: string, modelDir: string, onProgress?: (...args: unknown[]) => void): Promise<unknown>;
 export declare function transcribeFile(wav16kMonoPath: string, opts: TranscribeFileOptions): Promise<TranscribeFileResult>;

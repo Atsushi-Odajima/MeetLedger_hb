@@ -33,7 +33,8 @@ function lastLine(s: string): string {
 }
 
 export async function ffprobe(cfg: Pick<Config, 'FFPROBE_PATH'>, path: string): Promise<ProbeResult> {
-  const r = await run(cfg.FFPROBE_PATH, ['-v', 'error', '-print_format', 'json', '-show_format', '-show_streams', path], 120_000);
+  // Only local file access: untrusted media must not make ffmpeg open URLs / other files (playlists, drefs).
+  const r = await run(cfg.FFPROBE_PATH, ['-v', 'error', '-protocol_whitelist', 'file', '-print_format', 'json', '-show_format', '-show_streams', path], 120_000);
   if (r.code !== 0) throw new Error(`ffprobe failed: ${lastLine(r.err)}`);
   let j: any;
   try {
@@ -60,7 +61,7 @@ export async function ffprobe(cfg: Pick<Config, 'FFPROBE_PATH'>, path: string): 
  * given, also writes a 16 kHz 2-channel WAV keeping the source's first two channels (ch0 = mic, ch1 = system).
  */
 export async function normalizeAudio(cfg: Pick<Config, 'FFMPEG_PATH'>, src: string, monoOut: string, stereoOut?: string | null): Promise<void> {
-  const base = ['-nostdin', '-hide_banner', '-loglevel', 'error', '-y', '-i', src];
+  const base = ['-nostdin', '-hide_banner', '-loglevel', 'error', '-y', '-protocol_whitelist', 'file', '-i', src];
   const common = ['-map', '0:a:0', '-vn', '-sn', '-dn', '-map_metadata', '-1', '-ar', '16000', '-c:a', 'pcm_s16le', '-bitexact', '-f', 'wav'];
   const args = [...base, ...common, '-ac', '1', monoOut];
   if (stereoOut) args.push(...common, '-af', 'pan=stereo|c0=c0|c1=c1', stereoOut);

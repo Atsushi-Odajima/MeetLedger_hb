@@ -230,7 +230,8 @@ export async function transcribeSamples(samples: Float32Array, opts: TranscribeO
     const event = String(result?.event ?? '').replace(/[<>|]/g, '') || undefined;
     if (lang && !isUnintelligible(text)) langCount.set(lang, (langCount.get(lang) ?? 0) + c.samples.length);
     const startMs = Math.round((c.startSample / SAMPLE_RATE) * 1000);
-    const endMs = Math.round(((c.startSample + c.samples.length) / SAMPLE_RATE) * 1000);
+    // The padded final VAD window may reach past the end of the audio: clamp.
+    const endMs = Math.min(durationMs, Math.round(((c.startSample + c.samples.length) / SAMPLE_RATE) * 1000));
     // Speech was detected but nothing intelligible came out: keep the gap visible, never invent words.
     const unintelligible = isUnintelligible(text) || (event !== undefined && event !== 'Speech' && letterCount(text) <= 2);
     const confidence = unintelligible ? 0 : confidenceFrom(result);

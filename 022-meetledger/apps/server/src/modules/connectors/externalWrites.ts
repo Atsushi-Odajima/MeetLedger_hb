@@ -9,7 +9,7 @@ import { loadMeeting, meetingVisibleSql, requireAuth, workspaceCtx } from '../..
 import { roleAtLeast } from '@meetledger/shared';
 import { assertSafeOutboundUrl } from './netguard';
 import { accessTokenFor } from './oauth';
-import { connectorSettings, maskUrl, openSecret, sha256Hex, stableStringify } from './secrets';
+import { connectorSettings, openSecret, sha256Hex, stableStringify } from './secrets';
 import { emitWebhookEvent, signWebhook, SIGNATURE_HEADER } from './webhooks';
 
 // Every write to an external system is a two-phase operation:
@@ -388,4 +388,3 @@ export function externalWriteRoutes(app: FastifyInstance, deps: Deps) {
   });
 }
 
-export { maskUrl };

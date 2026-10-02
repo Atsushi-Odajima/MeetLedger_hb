@@ -32,13 +32,16 @@ export interface RawTranscript {
   model: string;
   language: string;
   diarization: boolean;
+  diarizationError?: string;
   segments: unknown[];
 }
+
+export type AsrProgress = { phase?: string; done?: number; total?: number };
 
 export interface SessionDeps {
   api: MeetLedgerApi;
   store: RecordingStore;
-  transcribeWav: (wavPath: string, opts: { language?: string }) => Promise<RawTranscript>;
+  transcribeWav: (wavPath: string, opts: { language?: string }, onProgress?: (p: AsrProgress) => void) => Promise<RawTranscript>;
   emit: (ownerId: number, state: RecState) => void;
   onStateChange: (state: RecState) => void;
   onSystemAudioObserved: () => void;
@@ -249,13 +252,22 @@ export class RecorderSession {
     if (this.st.wavBytes < ASR_SAMPLE_RATE * 2 * 0.5) throw new SessionError('too_short', '録音が短すぎます（0.5秒未満）');
     this.set({ phase: 'busy', message: 'この端末で文字起こししています…（音声は送信されません）' });
     try {
-      const raw = await this.deps.transcribeWav(this.wavPath, { language: this.meeting?.language ?? undefined });
+      let last = 0;
+      const PHASE: Record<string, string> = { vad: '発話区間の検出', asr: '音声認識', diarization: '話者分離' };
+      const raw = await this.deps.transcribeWav(this.wavPath, { language: this.meeting?.language ?? undefined }, (p) => {
+        const now = Date.now();
+        if (now - last < 500 || !p.phase) return;
+        last = now;
+        const pct = p.total ? ` ${Math.min(100, Math.round(((p.done ?? 0) / p.total) * 100))}%` : '';
+        this.set({ message: `この端末で文字起こししています…（${PHASE[p.phase] ?? p.phase}${pct}）音声は送信されません` });
+      });
       const segments = sanitizeSegments(raw.segments) as LocalSegment[];
       const attributed = attributeSpeakers(segments, { frames: this.env.subarray(0, this.envLen), frameMs: ENV_FRAME_MS }, {
         systemAudioCaptured: this.st.systemAudioActive,
       });
       this.result = { provider: 'local-sherpa', model: raw.model, language: raw.language, diarization: raw.diarization, segments: attributed };
-      this.set({ phase: 'stopped', message: `文字起こし完了（${attributed.length} セグメント）。内容を確認して送信してください。` });
+      const diar = raw.diarizationError ? `（話者分離は実行されませんでした: ${raw.diarizationError}）` : '';
+      this.set({ phase: 'stopped', message: `文字起こし完了（${attributed.length} セグメント）${diar}。内容を確認して送信してください。` });
       return this.result;
     } catch (e) {
       this.set({ phase: 'stopped', message: `文字起こしに失敗しました: ${(e as Error).message}` });

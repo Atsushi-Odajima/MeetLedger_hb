@@ -17,10 +17,25 @@ interface ParentPort {
 const parentPort = (process as unknown as { parentPort?: ParentPort }).parentPort;
 
 let modPromise: Promise<Mod> | null = null;
+let modCache: Mod | null = null;
 function loadModule(): Promise<Mod> {
   // Lazy: the import evaluates local-asr (and possibly loads the native addon); failures are reported, not thrown at startup.
-  modPromise ??= import('@meetledger/local-asr').then((m) => m as Mod);
+  modPromise ??= import('@meetledger/local-asr').then((m) => (modCache = m as Mod));
   return modPromise;
+}
+
+/**
+ * Model downloads go through Chromium's network stack (Electron `net` in the utility process): OS proxy settings
+ * and certificate store apply, unlike Node's fetch. Falls back to globalThis.fetch outside Electron.
+ */
+function downloadFetch(): typeof fetch | undefined {
+  try {
+    const req = createRequire(import.meta.url);
+    const electron = req('electron') as { net?: { fetch?: typeof fetch } };
+    return electron?.net?.fetch ? (electron.net.fetch.bind(electron.net) as typeof fetch) : undefined;
+  } catch {
+    return undefined;
+  }
 }
 
 const REQUIRED = ['MODEL_CATALOG', 'checkModels', 'downloadModel', 'transcribeFile'] as const;
@@ -40,10 +55,19 @@ async function probe(): Promise<ProbeResult> {
     out.module.error = errMessage(e);
   }
   try {
-    const req = createRequire(import.meta.url);
-    const sherpa = req('sherpa-onnx-node') as Record<string, unknown>;
-    out.runtime.ok = typeof sherpa === 'object' && sherpa !== null && typeof sherpa.OfflineRecognizer === 'function';
-    if (!out.runtime.ok) out.runtime.error = 'sherpa-onnx-node loaded but OfflineRecognizer is missing';
+    // Prefer local-asr's own loader (same resolution it will use for transcription); fall back to a direct require.
+    const status = modCache && typeof (modCache as Record<string, unknown>).sherpaStatus === 'function'
+      ? ((modCache as Record<string, unknown>).sherpaStatus as () => { ok: boolean; reason?: string })()
+      : null;
+    if (status) {
+      out.runtime.ok = status.ok;
+      out.runtime.error = status.ok ? null : (status.reason ?? 'sherpa-onnx-node unavailable').slice(0, 500);
+    } else {
+      const req = createRequire(import.meta.url);
+      const sherpa = req('sherpa-onnx-node') as Record<string, unknown>;
+      out.runtime.ok = typeof sherpa === 'object' && sherpa !== null && typeof sherpa.OfflineRecognizer === 'function';
+      if (!out.runtime.ok) out.runtime.error = 'sherpa-onnx-node loaded but OfflineRecognizer is missing';
+    }
   } catch (e) {
     out.runtime.error = errMessage(e);
   }
@@ -88,28 +112,36 @@ async function handle(req: WorkerRequest): Promise<unknown> {
       return catalog(str(p.modelDir, 'modelDir'));
     case 'download': {
       const m = await requireModule();
-      await m.downloadModel(str(p.id, 'id'), str(p.modelDir, 'modelDir'), (...args: unknown[]) => {
-        // progress args are forwarded as-is (numbers / plain objects only) and normalized in main
+      const onProgress = (...args: unknown[]) => {
+        // progress args are forwarded as plain data (numbers / JSON objects only) and normalized in main
         const safe = args.slice(0, 2).map((a) => (typeof a === 'number' || (typeof a === 'object' && a !== null) ? JSON.parse(JSON.stringify(a)) : null));
         parentPort?.postMessage({ id: req.id, progress: safe } satisfies WorkerMessage);
-      });
+      };
+      const fetchImpl = downloadFetch();
+      // 4th argument (options) is accepted by packages/local-asr downloadModel; extra args are harmless otherwise.
+      await (m.downloadModel as (...a: unknown[]) => Promise<unknown>)(str(p.id, 'id'), str(p.modelDir, 'modelDir'), onProgress, fetchImpl ? { fetchImpl } : {});
       return { ok: true };
     }
     case 'transcribe': {
       const m = await requireModule();
-      const res = await m.transcribeFile(str(p.wavPath, 'wavPath'), {
+      const res = (await m.transcribeFile(str(p.wavPath, 'wavPath'), {
         modelDir: str(p.modelDir, 'modelDir'),
         model: typeof p.model === 'string' ? p.model : undefined,
         numThreads: typeof p.numThreads === 'number' ? p.numThreads : undefined,
         diarization: p.diarization === true,
         language: typeof p.language === 'string' ? p.language : undefined,
-      });
+        onProgress: (pr: unknown) => {
+          if (pr && typeof pr === 'object') parentPort?.postMessage({ id: req.id, progress: [JSON.parse(JSON.stringify(pr))] } satisfies WorkerMessage);
+        },
+      } as Parameters<typeof m.transcribeFile>[1])) as unknown as Record<string, unknown> & { segments?: unknown };
       // Pass through only plain data; main validates again (sanitizeSegments) before anything is sent to the server.
-      const segments = Array.isArray(res?.segments) ? res.segments : [];
+      const segments = (Array.isArray(res?.segments) ? res.segments : []) as Array<Record<string, unknown> | null>;
       return {
         model: typeof res?.model === 'string' ? res.model : String(p.model ?? 'unknown'),
         language: typeof res?.language === 'string' ? res.language : String(p.language ?? 'auto'),
-        diarization: res?.diarization === true,
+        // contract said boolean; packages/local-asr returns 'provider' | 'none'
+        diarization: res?.diarization === true || res?.diarization === 'provider',
+        ...(typeof res?.diarizationError === 'string' ? { diarizationError: res.diarizationError.slice(0, 300) } : {}),
         segments: segments.map((s) => ({
           startMs: Number(s?.startMs),
           endMs: Number(s?.endMs),

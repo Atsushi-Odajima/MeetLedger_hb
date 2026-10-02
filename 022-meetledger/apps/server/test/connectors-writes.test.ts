@@ -154,6 +154,56 @@ describe('external writes: preview + explicit approval, executed exactly once', 
   });
 });
 
+describe('external writes: Gmail draft (restricted scope) and generic signed webhook', () => {
+  it('Gmail creates a DRAFT only (RFC 2822, no header injection); webhook write is signed and SSRF-checked', async () => {
+    const { sealSecret } = await import('../src/modules/connectors/secrets');
+    // Gmail connector as it exists after a completed OAuth flow (personal to the member)
+    const gmailId = await env.tenantTx(orgId, async (db) =>
+      (
+        await db.query(
+          `INSERT INTO connector_accounts(org_id, workspace_id, user_id, provider, status, scopes, secret_ciphertext) VALUES ($1,$2,$3,'gmail','active',$4,$5) RETURNING id`,
+          [orgId, ws, member.userId, ['https://www.googleapis.com/auth/gmail.compose'], sealSecret(env.deps, { accessToken: 'ya29.GMAIL', refreshToken: null, expiresAt: null, tokenType: 'Bearer' })],
+        )
+      ).rows[0].id as string,
+    );
+    // personal connector: other users cannot use it
+    expect((await owner.post(`/api/w/${ws}/external-writes`, { connectorId: gmailId, text: 'x', subject: 's', to: ['a@example.com'] })).status).toBe(404);
+    expect((await member.client.post(`/api/w/${ws}/external-writes`, { connectorId: gmailId, text: 'x', subject: 'bad\r\nBcc: evil@example.com', to: ['a@example.com'] })).status).toBe(400);
+    env.http.responder = routeResponder({ 'https://gmail.googleapis.com/gmail/v1/users/me/drafts': json({ id: 'r-123', message: { id: 'm-1' } }) });
+    const w = await member.client.post(`/api/w/${ws}/external-writes`, { connectorId: gmailId, text: 'お打ち合わせありがとうございました。', subject: '本日の御礼', to: ['Client@Example.com'] });
+    expect(w.status).toBe(200);
+    expect(w.body.request.target).toBe('Gmail下書き → client@example.com');
+    expect(env.http.calls.filter((c) => c.url.includes('gmail.googleapis.com'))).toHaveLength(0);
+    const a = await member.client.post(`/api/w/${ws}/external-writes/${w.body.request.id}/approve`);
+    expect(a.body.request.status).toBe('executed');
+    expect(a.body.request.result).toEqual({ draftId: 'r-123' });
+    const calls = env.http.calls.filter((c) => c.url.includes('gmail.googleapis.com'));
+    expect(calls).toHaveLength(1);
+    expect(calls[0].url).toBe('https://gmail.googleapis.com/gmail/v1/users/me/drafts'); // drafts, never messages/send
+    expect((calls[0].init?.headers as any).authorization).toBe('Bearer ya29.GMAIL');
+    const mime = Buffer.from(JSON.parse(String(calls[0].init?.body)).message.raw, 'base64url').toString('utf8');
+    expect(mime).toContain('To: client@example.com');
+    expect(mime).toContain(`Subject: =?UTF-8?B?${Buffer.from('本日の御礼').toString('base64')}?=`);
+    expect(Buffer.from(mime.split('\r\n\r\n')[1].replace(/\r\n/g, ''), 'base64').toString('utf8')).toBe('お打ち合わせありがとうございました。');
+
+    // generic outbound webhook write
+    const { verifyWebhookSignature } = await import('../src/modules/connectors/webhooks');
+    expect((await owner.post(`/api/w/${ws}/connectors`, { provider: 'webhook', url: 'https://private.example.com/in' })).status).toBe(400);
+    const c = await owner.post(`/api/w/${ws}/connectors`, { provider: 'webhook', url: 'https://hooks.example.com/crm-in', displayName: 'CRM bridge' });
+    expect(c.status).toBe(200);
+    expect(c.body.signingSecret).toMatch(/^whsec_/);
+    expect(c.body.connector.config.urlHint).toBe('https://hooks.example.com/…');
+    env.http.responder = routeResponder({ 'https://hooks.example.com/crm-in': () => new Response(null, { status: 204 }) });
+    const w2 = await member.client.post(`/api/w/${ws}/external-writes`, { connectorId: c.body.connector.id, text: 'Action: send quote by Fri' });
+    const a2 = await member.client.post(`/api/w/${ws}/external-writes/${w2.body.request.id}/approve`);
+    expect(a2.body.request.status).toBe('executed');
+    const call = env.http.calls.filter((x) => x.url === 'https://hooks.example.com/crm-in').at(-1)!;
+    const raw = String(call.init?.body);
+    expect(JSON.parse(raw)).toMatchObject({ event: 'external_write', text: 'Action: send quote by Fri', id: w2.body.request.id });
+    expect(verifyWebhookSignature(c.body.signingSecret, raw, (call.init?.headers as any)['x-meetledger-signature'], Math.floor(env.clock.now().getTime() / 1000))).toBe(true);
+  });
+});
+
 describe('outbound webhooks: SSRF guard + HMAC signature + retries', () => {
   it('address classification covers private, loopback, link-local, CGNAT, ULA and mapped IPv6', () => {
     for (const ip of ['10.0.0.1', '127.0.0.1', '169.254.169.254', '172.16.5.4', '192.168.0.1', '100.64.0.1', '0.0.0.0', '::1', 'fd00::1', 'fe80::1', '::ffff:127.0.0.1', '::ffff:7f00:1', '224.0.0.1'])

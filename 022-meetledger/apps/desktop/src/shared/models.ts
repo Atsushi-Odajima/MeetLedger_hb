@@ -45,26 +45,73 @@ function languagesOf(e: Rec): string[] {
   return [];
 }
 
+const COMMERCIAL: Record<string, string> = {
+  allowed: '商用可',
+  'allowed-with-attribution': '商用可・クレジット表記必須',
+  unverified: '商用利用 未確認',
+};
+
+/** local-asr uses `licenses: [{component, license, url, attribution, commercialUse}]`; older shapes use `license`. */
+function licensesOf(e: Rec): Rec[] {
+  if (Array.isArray(e.licenses)) return e.licenses.filter(isRec);
+  return [];
+}
+
 function licenseOf(e: Rec): string {
+  const list = licensesOf(e);
+  if (list.length) {
+    return list
+      .map((l) => {
+        const name = str(l.license) ?? str(l.name) ?? '不明';
+        const comp = str(l.component);
+        const cu = typeof l.commercialUse === 'string' ? COMMERCIAL[l.commercialUse] : undefined;
+        return `${comp ? `${comp}: ` : ''}${name}${cu ? `（${cu}）` : ''}`;
+      })
+      .join(' / ')
+      .slice(0, 2000);
+  }
   const l = e.license ?? e.licence ?? e.licenseName;
   if (typeof l === 'string' && l.trim()) return l.trim();
   if (isRec(l)) return str(l.name) ?? str(l.spdx) ?? str(l.id) ?? '不明';
   return '不明';
 }
 
+function attributionOf(e: Rec): string | null {
+  const fromList = licensesOf(e)
+    .map((l) => str(l.attribution))
+    .filter((x): x is string => !!x);
+  if (fromList.length) return fromList.join(' / ').slice(0, 2000);
+  return str(e.attribution ?? e.credit ?? e.credits ?? (isRec(e.license) ? e.license.attribution : undefined));
+}
+
+function sourceOf(e: Rec): string | null {
+  const direct = str(e.url) ?? str(e.sourceUrl) ?? str(e.homepage);
+  if (direct) return direct;
+  if (Array.isArray(e.downloads)) {
+    const urls = e.downloads.filter(isRec).map((d) => str(d.url)).filter((x): x is string => !!x);
+    if (urls.length) {
+      try {
+        return [...new Set(urls.map((u) => new URL(u).origin + new URL(u).pathname.split('/').slice(0, 3).join('/')))].join(', ');
+      } catch {
+        return urls[0]!;
+      }
+    }
+  }
+  return isRec(e.license) ? str(e.license.url) : null;
+}
+
 export function normalizeModel(e: Rec, installed: boolean): ModelInfo | null {
   const id = str(e.id) ?? str(e.modelId);
   if (!id || !MODEL_ID_RE.test(id)) return null;
   const kind = str(e.kind) ?? str(e.type) ?? '';
-  const attributionRaw = e.attribution ?? e.credit ?? e.credits ?? (isRec(e.license) ? e.license.attribution : undefined);
   return {
     id,
-    name: str(e.name) ?? str(e.label) ?? str(e.displayName) ?? id,
+    name: str(e.title) ?? str(e.name) ?? str(e.label) ?? str(e.displayName) ?? id,
     languages: languagesOf(e),
     sizeBytes: sizeOf(e),
     license: licenseOf(e),
-    attribution: str(attributionRaw),
-    sourceUrl: str(e.url) ?? str(e.sourceUrl) ?? str(e.homepage) ?? (isRec(e.license) ? str(e.license.url) : null),
+    attribution: attributionOf(e),
+    sourceUrl: sourceOf(e),
     diarization: e.diarization === true || /diar|segment|speaker|embedding/i.test(kind),
     installed,
   };
@@ -95,7 +142,8 @@ export function normalizeProgress(id: string, args: unknown[]): ModelProgress {
     const total = num(a.totalBytes) ?? num(a.total) ?? num(a.size);
     const frac = num(a.fraction) ?? num(a.progress) ?? num(a.percent);
     const fraction = frac !== null ? (frac > 1 ? Math.min(1, frac / 100) : frac) : received !== null && total ? Math.min(1, received / total) : null;
-    return { id, receivedBytes: received, totalBytes: total, fraction };
+    const phase = typeof a.phase === 'string' && /^[a-z]{1,20}$/.test(a.phase) ? a.phase : undefined;
+    return { id, receivedBytes: received, totalBytes: total, fraction, ...(phase ? { phase } : {}) };
   }
   return { id, receivedBytes: null, totalBytes: null, fraction: null };
 }
