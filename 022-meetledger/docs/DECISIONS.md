@@ -22,3 +22,6 @@
 | D18 | 認証は server-side session（httpOnly cookie, SameSite=Lax）+ session 紐付け CSRF token（custom header）+ Origin 検査。パスワードは scrypt N=2^17 | OWASP 推奨 |
 | D19 | メディアは org 別 HKDF 派生鍵で AES-256-GCM 暗号化保存、配信は user+期限に束縛した HMAC 署名URL + ACL 再確認 | §33 signed URLs |
 | D20 | 名称「MeetLedger」は変更しない。商標DB未検索のため販売前に人間が確認（候補名は BRANDING.md / SOURCE_NOTES.md） | §43 |
+| D21 | MCP は TS SDK v2（`@modelcontextprotocol/server` 2.2 / spec 2026-07-28）の `createMcpHandler` を採用。stateless fallback で 2025 系クライアント（2025-11-25〜2024-10-07）も同一 URL で受ける。v1.31 は stdio proxy の HTTP client にのみ使用 | 最新 spec と既存クライアント互換の両立（MCP_PLUGIN.md §2） |
+| D22 | RLS 下では非 leakproof 演算子（`tsvector @@ tsquery`、配列演算子）・式で index が使えないため、検索は「新しい Meeting から recency window」で行い、時間予算超過時は `truncated:true` + 絞り込みヒントを返す。セルフホストで `ts_match_vq` を LEAKPROOF にした場合のみ、稀な語は GIN の完全一致経路（hybrid 判定）。ledger/memory は keyset pagination・主キー経由 ACL・件数上限 | 1,000 万 segment で p95 < 0.6 秒（TEST_REPORT §4）。RLS を外さずに性能を確保。LEAKPROOF は任意（マネージド DB では不可） |
+| D23 | Local ASR の Worker 並列度は 1〜2 を推奨（4 vCPU 実測で並列化の効果なし: 各ジョブが全コアを使用） | TEST_REPORT §4.3 |
