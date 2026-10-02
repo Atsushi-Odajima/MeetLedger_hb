@@ -51,7 +51,7 @@ describe('data: exports', () => {
     const txt = await owner.client.get(`${W()}/meetings/${seed.m2}/export?format=txt`);
     expect(txt.raw).toContain('タイトル: Review <b>会議</b>');
     expect(txt.raw).toContain(`生成日時: ${now}`);
-    expect(txt.raw).toContain('[01:02:05]'.slice(0, 0) + '[00:09] Speaker 1: 比較表を作ります。');
+    expect(txt.raw).toContain('[00:09] Speaker 1: 比較表を作ります。');
 
     const json = await owner.client.get(`${W()}/meetings/${seed.m2}/export?format=json`);
     expect(json.body.format).toBe('meetledger.meeting-export/v1');
@@ -114,8 +114,7 @@ describe('data: exports', () => {
     const linked = as.find((a) => a.id === seed.actionLinked)!;
     expect(linked.linked_decision_id).toBe(seed.d2);
     expect(linked.assignee).toBe('Bob PM');
-    expect(linked.overdue).toBe('false'); // 2026-09-30 vs FakeClock 2026-10-01 01:00Z = 10:00 JST → overdue
-      .constructor === String && true;
+    expect(linked.overdue).toBe('true'); // due 2026-09-30, FakeClock 2026-10-01 10:00 JST
     for (const [i, id] of seed.injectionActions.entries()) {
       const cell = as.find((a) => a.id === id)!.description;
       expect(cell).toBe(`'${INJECTION_TEXTS[i]}`);
