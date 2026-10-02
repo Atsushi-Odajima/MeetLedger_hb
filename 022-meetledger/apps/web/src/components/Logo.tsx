@@ -21,7 +21,7 @@ export function Logo({ variant = 'full', className }: { variant?: 'full' | 'mark
     );
   return (
     <span className={`logo logo-text${className ? ` ${className}` : ''}`} aria-label="MeetLedger">
-      <span className="logo-mark" aria-hidden="true">
+      <span className="logo-glyph" aria-hidden="true">
         M
       </span>
       {variant === 'full' && <span className="logo-word">MeetLedger</span>}

@@ -3,6 +3,8 @@
 // web app. Non-GET requests carry the per-session CSRF token (`x-csrf-token` from GET /api/me) and the server
 // origin as Origin header, exactly like the web app. Paths are built only from validated UUIDs — no passthrough.
 
+import type { MeetingSummaryDto, MeSummaryDto } from '../shared/dto';
+
 export type FetchFn = (url: string, init: RequestInit) => Promise<Response>;
 
 export class ApiError extends Error {
@@ -16,24 +18,8 @@ export class ApiError extends Error {
   }
 }
 
-export interface MeetingSummary {
-  id: string;
-  workspaceId: string;
-  title: string;
-  status: string;
-  consentState: string;
-  transcriptionMode: string;
-  isConfidential: boolean;
-  aiEnabled: boolean;
-  scheduledStart: string | null;
-  startedAt: string | null;
-  language: string | null;
-}
-
-export interface MeSummary {
-  userName: string;
-  workspaces: { id: string; name: string; role: string; isSample: boolean }[];
-}
+export type MeetingSummary = MeetingSummaryDto;
+export type MeSummary = MeSummaryDto;
 
 const MAX_JSON_BYTES = 10 * 1024 * 1024;
 

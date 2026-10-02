@@ -318,6 +318,7 @@ async function sendNotes(client: ApiClient, op: NotesOp, res: ReplayResult) {
     });
     await cacheServerNotes(op.wsId, op.meetingId, { body: sentBody, version: saved.version, updatedAt: saved.updatedAt ?? now() });
     res.sent += 1;
+    if (stillPending) again = true; // newer text was typed meanwhile: send it in the next pass
     notesListeners.forEach((l) => l({ wsId: op.wsId, meetingId: op.meetingId, version: saved.version, body: sentBody, stillPending }));
   } catch (e) {
     if (e instanceof ApiError && e.status === 409) {

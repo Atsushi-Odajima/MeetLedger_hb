@@ -15,7 +15,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { createRequire } from 'node:module';
-import { execFileSync } from 'node:child_process';
+import { execFileSync, spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 
 const require = createRequire(import.meta.url);
@@ -147,22 +147,14 @@ function wavInfo(file) {
 }
 
 function channelStats(file) {
+  let probe = {};
   try {
-    const probe = JSON.parse(execFileSync('ffprobe', ['-v', 'error', '-show_streams', '-of', 'json', file]).toString());
-    const s = probe.streams?.[0] ?? {};
-    const out = execFileSync('ffmpeg', ['-hide_banner', '-nostats', '-i', file, '-af', 'astats=measure_overall=none:measure_perchannel=RMS_level', '-f', 'null', '-'], { stdio: ['ignore', 'pipe', 'pipe'] });
-    return { codec: s.codec_name, channels: s.channels, sampleRate: s.sample_rate, raw: out.toString() };
-  } catch (e) {
-    const stderr = e.stderr?.toString?.() ?? '';
-    const probe = (() => {
-      try {
-        return JSON.parse(execFileSync('ffprobe', ['-v', 'error', '-show_streams', '-of', 'json', file]).toString()).streams?.[0] ?? {};
-      } catch {
-        return {};
-      }
-    })();
-    return { codec: probe.codec_name, channels: probe.channels, sampleRate: probe.sample_rate, raw: stderr };
+    probe = JSON.parse(execFileSync('ffprobe', ['-v', 'error', '-show_streams', '-of', 'json', file]).toString()).streams?.[0] ?? {};
+  } catch {
+    /* ffprobe missing or file unreadable */
   }
+  const r = spawnSync('ffmpeg', ['-hide_banner', '-nostats', '-i', file, '-af', 'astats=measure_overall=none:measure_perchannel=RMS_level', '-f', 'null', '-'], { encoding: 'utf8' });
+  return { codec: probe.codec_name, channels: probe.channels, sampleRate: probe.sample_rate, raw: `${r.stdout ?? ''}${r.stderr ?? ''}` };
 }
 
 function perChannelRms(raw) {
@@ -181,7 +173,8 @@ function perChannelRms(raw) {
 async function launch(appDir, userData, extraArgs = []) {
   const app = await electron.launch({
     executablePath: electronPath,
-    args: ['--no-sandbox', appDir, '--use-fake-device-for-media-stream', '--use-fake-ui-for-media-stream', '--autoplay-policy=no-user-gesture-required', ...extraArgs],
+    // NOTE: no --use-fake-ui-for-media-stream: it would auto-accept capture and bypass Electron's permission handlers
+    args: ['--no-sandbox', appDir, '--use-fake-device-for-media-stream', '--autoplay-policy=no-user-gesture-required', ...extraArgs],
     env: { ...process.env, MEETLEDGER_USER_DATA_DIR: userData, ELECTRON_ENABLE_LOGGING: '0' },
     timeout: 60000,
   });
@@ -256,7 +249,12 @@ async function recorderFlow(app, mainPage, fake, userData, opts) {
   await rec.waitForFunction(() => document.querySelector('#rec-label').textContent.includes('録音中') && !document.querySelector('#stop').disabled, null, { timeout: 20000 });
   const winInfo = await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().map((w) => ({ title: w.getTitle(), top: w.isAlwaysOnTop(), min: w.isMinimizable(), url: w.webContents.getURL() })));
   const recWin = winInfo.find((w) => w.url.includes('/recorder/'));
-  check(`${tag} indicator: recorder window always-on-top & not minimizable while recording`, recWin?.top === true && recWin?.min === false, JSON.stringify(recWin));
+  // setMinimizable() is macOS/Windows only; on every OS a minimize is undone while recording
+  check(`${tag} indicator: recorder window always-on-top${process.platform === 'linux' ? '' : ' & not minimizable'} while recording`, recWin?.top === true && (process.platform === 'linux' || recWin?.min === false), JSON.stringify(recWin));
+  await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().find((w) => w.webContents.getURL().includes('/recorder/'))?.minimize());
+  await sleep(700);
+  const minimized = await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().find((w) => w.webContents.getURL().includes('/recorder/'))?.isMinimized());
+  check(`${tag} indicator: minimizing the recorder window while recording is undone`, minimized === false, String(minimized));
   check(`${tag} indicator: every window title starts with "● 録音中"`, winInfo.every((w) => w.title.startsWith('● 録音中')), winInfo.map((w) => w.title).join(' | '));
   const pageTitleOverride = await mainPage.evaluate(() => {
     document.title = 'page tries to hide it';
@@ -332,6 +330,45 @@ async function recorderFlow(app, mainPage, fake, userData, opts) {
   return { rec, rows, capText };
 }
 
+// ------------------------------------------------------------------ phase 0: first run (no server configured)
+async function phaseFirstRun() {
+  const distDir = path.join(root, 'dist-smoke');
+  const fake = await startFakeServer();
+  const userData = fs.mkdtempSync(path.join(os.tmpdir(), 'ml-smoke-first-'));
+  const { app } = await launch(prepareAppDir(distDir), userData);
+  try {
+    const page = await app.firstWindow();
+    await page.waitForURL(/app:\/\/desktop\/settings\/index\.html/, { timeout: 30000 });
+    check('0 first run: main window shows the local settings page', true, page.url());
+    const csp = await page.evaluate(() => {
+      const s = document.createElement('script');
+      s.textContent = 'window.__inline = 1';
+      document.head.append(s);
+      return typeof window.__inline;
+    });
+    check('0 settings page CSP blocks inline script', csp === 'undefined', csp);
+    await page.fill('#server-url', 'http://evil.example');
+    await page.click('#test');
+    await page.waitForFunction(() => document.querySelector('#server-result').textContent.length > 0 && !document.querySelector('#server-result').textContent.includes('確認しています'));
+    check('0 settings: plain http to a non-loopback host is rejected', /localhost/.test(await page.textContent('#server-result')), await page.textContent('#server-result'));
+    await page.fill('#server-url', fake.origin + '/some/path');
+    await page.click('#test');
+    await page.waitForFunction(() => /接続できました/.test(document.querySelector('#server-result').textContent), null, { timeout: 15000 });
+    check('0 settings: connection test against /api/health', true, await page.textContent('#server-result'));
+    const winP = app.waitForEvent('window', { timeout: 20000 });
+    await page.click('#save-server');
+    const main = await winP;
+    await main.waitForURL(`${fake.origin}/`, { timeout: 20000 });
+    const cfg = JSON.parse(fs.readFileSync(path.join(userData, 'config.json'), 'utf8'));
+    check('0 save: config.json stores the normalized origin and the main window opens the server', cfg.serverUrl === fake.origin && (await main.title()) === 'Fake MeetLedger', JSON.stringify({ serverUrl: cfg.serverUrl }));
+    check('0 bridge available after switching origin (preload re-created with new allowed origin)', await main.evaluate(() => typeof window.meetledgerDesktop === 'object'));
+  } finally {
+    await app.close().catch(() => undefined);
+    fake.server.close();
+    fs.rmSync(userData, { recursive: true, force: true });
+  }
+}
+
 // ------------------------------------------------------------------ phase A: stub local-asr
 async function phaseA() {
   const distDir = path.join(root, 'dist-smoke');
@@ -375,7 +412,7 @@ async function phaseA() {
     // --- IPC validation from the web page
     const v = await page.evaluate(async () => {
       const d = window.meetledgerDesktop;
-      const err = (p) => p.then(() => 'resolved', (e) => `${e.code}`);
+      const err = (p) => p.then(() => 'resolved', (e) => (/^\[([a-z0-9_]+)\] /.exec(e.message) ?? [])[1] ?? `nocode:${e.message}`);
       return {
         badModel: await err(d.downloadModel('../../etc')),
         badMime: await err(d.saveRecording({ mimeType: 'text/html', data: new ArrayBuffer(8) })),
@@ -419,9 +456,11 @@ async function phaseA() {
       const saved = await d.saveRecording({ mimeType: 'audio/wav', data: buf });
       const r = await d.transcribeLocal(saved.fileToken, { language: 'ja' });
       const webmTok = await d.saveRecording({ mimeType: 'audio/webm', data: new Uint8Array([0x1a, 0x45, 0xdf, 0xa3]).buffer });
-      const wrong = await d.transcribeLocal(webmTok.fileToken).then(() => 'resolved', (e) => e.code);
+      const code = (e) => (/^\[([a-z0-9_]+)\] /.exec(e.message) ?? [])[1];
+      const wrong = await d.transcribeLocal(webmTok.fileToken).then(() => 'resolved', code);
+      await d.discardRecording(webmTok.fileToken);
       await d.discardRecording(saved.fileToken);
-      const gone = await d.transcribeLocal(saved.fileToken).then(() => 'resolved', (e) => e.code);
+      const gone = await d.transcribeLocal(saved.fileToken).then(() => 'resolved', code);
       return { token: saved.fileToken.length, n: r.segments.length, provider: r.provider, wrong, gone };
     });
     check('A web bridge: saveRecording → transcribeLocal (WAV), webm refused, discard works', web.token === 64 && web.n === 2 && web.provider === 'local-sherpa' && web.wrong === 'invalid_input' && web.gone === 'not_found', JSON.stringify(web));
@@ -460,8 +499,9 @@ async function phaseA() {
     // --- consent gate on the server side as well: reset to pending and try to start directly via the recorder bridge
     fake.state.consentState = 'pending';
     const rec = app.windows().find((w) => w.url().includes('/recorder/'));
-    const gate = await rec.evaluate(({ ws, m }) => window.meetledgerLocal.recorder.prepare({ workspaceId: ws, meetingId: m, mode: 'server', uploadAudio: true, systemAudio: false }).then(() => 'armed', (e) => e.code), { ws: WS, m: MEETING });
-    check('A consent gate: prepare refused while consent pending (no /start call)', gate === 'consent_required', gate);
+    const startsBefore = fake.state.starts.length;
+    const gate = await rec.evaluate(({ ws, m }) => window.meetledgerLocal.recorder.prepare({ workspaceId: ws, meetingId: m, mode: 'server', uploadAudio: true, systemAudio: false }).then(() => 'armed', (e) => (/^\[([a-z0-9_]+)\] /.exec(e.message) ?? [])[1]), { ws: WS, m: MEETING });
+    check('A consent gate: prepare refused while consent pending (no /start call)', gate === 'consent_required' && fake.state.starts.length === startsBefore, gate);
   } finally {
     await app.close().catch(() => undefined);
     fake.server.close();
@@ -499,7 +539,11 @@ async function phaseB() {
     const r = await page.evaluate(async (arr) => {
       const d = window.meetledgerDesktop;
       const s = await d.saveRecording({ mimeType: 'audio/wav', data: new Uint8Array(arr).buffer });
-      return d.transcribeLocal(s.fileToken, { language: 'ja', diarization: false });
+      try {
+        return await d.transcribeLocal(s.fileToken, { language: 'ja', diarization: false });
+      } finally {
+        await d.discardRecording(s.fileToken);
+      }
     }, bytes);
     const text = r.segments.map((s) => s.text).join('');
     check('B web bridge transcribeLocal(ja.wav) → Japanese text via SenseVoice in utility process', /中学/.test(text) && /弁当/.test(text), `${Date.now() - t0} ms: ${text.slice(0, 80)}`);
@@ -518,6 +562,7 @@ async function phaseB() {
 }
 
 try {
+  await phaseFirstRun();
   await phaseA();
   if (!process.argv.includes('--a-only')) await phaseB();
 } catch (e) {

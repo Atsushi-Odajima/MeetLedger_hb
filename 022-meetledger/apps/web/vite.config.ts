@@ -29,7 +29,7 @@ function serviceWorker(): Plugin {
     apply: 'build',
     generateBundle(_options, bundle) {
       const files = Object.keys(bundle).filter((f) => !f.endsWith('.map') && f !== 'sw.js');
-      const pub = listPublic(join(root, 'public')).filter((f) => !f.endsWith('.map'));
+      const pub = listPublic(join(root, 'public')).filter((f) => !f.endsWith('.map') && f !== '/og.png'); // OG image is for link previews only
       const precache = Array.from(new Set(['/', '/index.html', ...pub, ...files.map((f) => '/' + f)]));
       const raw = readFileSync(resolve(root, 'src/sw/service-worker.js'), 'utf8');
       const version = createHash('sha256').update(precache.join('|')).update(raw).digest('hex').slice(0, 12);

@@ -1,7 +1,7 @@
 // First-run / settings page (app://desktop/settings/index.html).
 
 import type { DesktopConfigPublic, ModelInfo, ModelProgress } from '../../shared/ipc';
-import '../../shared/bridge';
+import { bridgeErrorMessage } from '../../shared/bridge';
 import { formatBytes } from '../../shared/models';
 
 const D = window.meetledgerDesktop!;
@@ -37,7 +37,7 @@ const el = {
 let cfg: DesktopConfigPublic | null = null;
 const progress = new Map<string, ModelProgress>();
 
-const msg = (e: unknown) => (e as Error)?.message ?? String(e);
+const msg = bridgeErrorMessage;
 
 function fillConfig(c: DesktopConfigPublic): void {
   cfg = c;

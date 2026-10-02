@@ -1026,4 +1026,17 @@ export const ja = {
   'connectorProvider.hubspot': 'HubSpot',
   'connectorProvider.salesforce': 'Salesforce',
   'connectorProvider.teams': 'Microsoft Teams',
+  // ---- added
+  'decision.revokedNoReplacement': '以前の決定は取り消されました（後継の決定はありません）',
+  'meeting.candidatesN': '候補 {n}',
+  'question.owner': '担当',
+  'coach.topicsWithoutDecision': '決定に至っていない話題',
+  'coach.topicsWithoutDecisionHint': '要約の話題のうち、決まったこととして記録されていないものです（事実の一覧であり、評価ではありません）。',
+  'coach.metric.durationMs': '会議の長さ',
+  'coach.metric.openQuestions': '未解決の問い',
+  'coach.metric.actions': 'やること',
+  'coach.metric.actionsWithoutOwner': '担当者が未設定のやること',
+  'coach.metric.actionsWithoutDue': '期限が未設定のやること',
+  'coach.metric.decisionCount': '決まったこと（候補を含む）',
+  'coach.metric.confirmedDecisionCount': '確定した決まったこと',
 } as const;

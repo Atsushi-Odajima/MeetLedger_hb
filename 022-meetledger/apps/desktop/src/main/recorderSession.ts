@@ -83,11 +83,20 @@ export class RecorderSession {
   private result: LocalTranscriptResult | null = null;
   private systemAudioObserved = false;
   private ending = false;
+  private preparing = false;
+  /** Incremented on reset: async work started for an earlier session must not touch the current one. */
+  private gen = 0;
 
   constructor(private readonly deps: SessionDeps) {}
 
   get state(): RecState {
     return { ...this.st };
+  }
+
+  /** State as seen by a recorder page (a page that does not own the session sees "idle"). */
+  stateFor(webContentsId: number): RecState {
+    if (this.ownerId === webContentsId || this.st.phase === 'idle') return this.state;
+    return { ...initialState(), message: '別のウィンドウで録音セッションが進行中です' };
   }
 
   /** Capture (getUserMedia / getDisplayMedia) is allowed for the recorder page only while armed. */
@@ -109,11 +118,32 @@ export class RecorderSession {
     if (this.ownerId !== ownerId) throw new SessionError('not_owner', 'この録音セッションを操作できません');
   }
 
+  private alive(gen: number): void {
+    if (gen !== this.gen) throw new SessionError('aborted', '録音セッションは既に終了しています');
+  }
+
+  /** set() only if the session that started the async work is still current */
+  private setIf(gen: number, patch: Partial<RecState>): void {
+    if (gen === this.gen) this.set(patch);
+  }
+
   async prepare(
     ownerId: number,
     input: { workspaceId: string; meetingId: string; mode: ProcessingMode; uploadAudio: boolean; systemAudio: boolean },
   ): Promise<RecState> {
-    if (this.st.phase !== 'idle') throw new SessionError('busy', '別の録音セッションが進行中です');
+    if (this.st.phase !== 'idle' || this.preparing) throw new SessionError('busy', '別の録音セッションが進行中です');
+    this.preparing = true;
+    try {
+      return await this.doPrepare(ownerId, input);
+    } finally {
+      this.preparing = false;
+    }
+  }
+
+  private async doPrepare(
+    ownerId: number,
+    input: { workspaceId: string; meetingId: string; mode: ProcessingMode; uploadAudio: boolean; systemAudio: boolean },
+  ): Promise<RecState> {
     const m = await this.deps.api.meeting(input.workspaceId, input.meetingId);
     if (m.consentState === 'declined') throw new SessionError('consent_declined', '参加者が録音を拒否しています。録音できません。');
     if (m.consentState !== 'notified' && m.consentState !== 'confirmed') {
@@ -227,6 +257,7 @@ export class RecorderSession {
     this.assertOwner(ownerId);
     if (this.st.phase !== 'recording' && this.st.phase !== 'ready') throw new SessionError('bad_state', '録音中ではありません');
     const wasRecording = this.st.phase === 'recording';
+    const gen = this.gen;
     this.set({ phase: 'busy', message: '録音を保存しています…' });
     await this.closeFiles();
     let message = wasRecording ? '録音を停止しました' : '録音を開始せずに終了しました';
@@ -235,6 +266,7 @@ export class RecorderSession {
     } catch (e) {
       message += `（会議終了の記録に失敗: ${(e as Error).message}）`;
     }
+    this.alive(gen);
     this.set({ phase: 'stopped', message });
     return this.state;
   }
@@ -250,17 +282,19 @@ export class RecorderSession {
     if (this.st.phase !== 'stopped') throw new SessionError('bad_state', '録音を停止してから文字起こししてください');
     if (this.st.mode !== 'device' || !this.wavPath) throw new SessionError('bad_state', 'この録音は端末内文字起こしの対象ではありません');
     if (this.st.wavBytes < ASR_SAMPLE_RATE * 2 * 0.5) throw new SessionError('too_short', '録音が短すぎます（0.5秒未満）');
+    const gen = this.gen;
     this.set({ phase: 'busy', message: 'この端末で文字起こししています…（音声は送信されません）' });
     try {
       let last = 0;
       const PHASE: Record<string, string> = { vad: '発話区間の検出', asr: '音声認識', diarization: '話者分離' };
       const raw = await this.deps.transcribeWav(this.wavPath, { language: this.meeting?.language ?? undefined }, (p) => {
         const now = Date.now();
-        if (now - last < 500 || !p.phase) return;
+        if (now - last < 500 || !p.phase || gen !== this.gen) return;
         last = now;
         const pct = p.total ? ` ${Math.min(100, Math.round(((p.done ?? 0) / p.total) * 100))}%` : '';
         this.set({ message: `この端末で文字起こししています…（${PHASE[p.phase] ?? p.phase}${pct}）音声は送信されません` });
       });
+      this.alive(gen);
       const segments = sanitizeSegments(raw.segments) as LocalSegment[];
       const attributed = attributeSpeakers(segments, { frames: this.env.subarray(0, this.envLen), frameMs: ENV_FRAME_MS }, {
         systemAudioCaptured: this.st.systemAudioActive,
@@ -270,7 +304,7 @@ export class RecorderSession {
       this.set({ phase: 'stopped', message: `文字起こし完了（${attributed.length} セグメント）${diar}。内容を確認して送信してください。` });
       return this.result;
     } catch (e) {
-      this.set({ phase: 'stopped', message: `文字起こしに失敗しました: ${(e as Error).message}` });
+      this.setIf(gen, { phase: 'stopped', message: `文字起こしに失敗しました: ${(e as Error).message}` });
       throw e;
     }
   }
@@ -279,6 +313,7 @@ export class RecorderSession {
     this.assertOwner(ownerId);
     if (this.st.phase !== 'stopped' || !this.result) throw new SessionError('bad_state', '送信する文字起こし結果がありません');
     const r = this.result;
+    const gen = this.gen;
     this.set({ phase: 'busy', message: '文字起こし結果（テキストのみ）を送信しています…' });
     try {
       await this.deps.api.postLocalTranscript(this.st.workspaceId!, this.st.meetingId!, {
@@ -288,9 +323,10 @@ export class RecorderSession {
         segments: r.segments,
       });
     } catch (e) {
-      this.set({ phase: 'stopped', message: `送信に失敗しました: ${(e as Error).message}` });
+      this.setIf(gen, { phase: 'stopped', message: `送信に失敗しました: ${(e as Error).message}` });
       throw e;
     }
+    this.alive(gen);
     // The transcript is on the server; the local 16 kHz working copy is no longer needed.
     if (this.wavPath) {
       this.deps.store.unprotect(this.wavPath);
@@ -306,19 +342,23 @@ export class RecorderSession {
     this.assertOwner(ownerId);
     if (this.st.phase !== 'stopped') throw new SessionError('bad_state', '録音を停止してからアップロードしてください');
     if (!this.st.uploadAudio || !this.webmPath || this.st.webmBytes === 0) throw new SessionError('bad_state', 'アップロードする音声がありません');
+    const gen = this.gen;
+    const webmPath = this.webmPath;
     this.set({ phase: 'busy', message: '音声ファイルをアップロードしています…' });
     try {
       const { openAsBlob } = await import('node:fs');
-      const blob = await openAsBlob(this.webmPath, { type: 'audio/webm' });
+      const blob = await openAsBlob(webmPath, { type: 'audio/webm' });
       const stamp = new Date(this.st.startedAt ?? Date.now()).toISOString().replace(/[:.]/g, '-');
       const res = await this.deps.api.uploadMedia(this.st.workspaceId!, this.st.meetingId!, blob, `desktop-${stamp}.webm`);
-      this.deps.store.unprotect(this.webmPath);
-      await fsp.rm(this.webmPath, { force: true });
+      // uploaded → the local copy is no longer needed (also when the session was abandoned meanwhile)
+      this.deps.store.unprotect(webmPath);
+      await fsp.rm(webmPath, { force: true });
+      this.alive(gen);
       this.webmPath = null;
       this.set({ phase: 'stopped', message: '音声をアップロードしました（サーバーで処理されます）' });
       return { assetId: res.assetId };
     } catch (e) {
-      this.set({ phase: 'stopped', message: `アップロードに失敗しました: ${(e as Error).message}` });
+      this.setIf(gen, { phase: 'stopped', message: `アップロードに失敗しました: ${(e as Error).message}` });
       throw e;
     }
   }
@@ -344,6 +384,7 @@ export class RecorderSession {
   }
 
   private reset(): void {
+    this.gen++;
     const owner = this.ownerId;
     this.st = initialState();
     this.deps.onStateChange(this.state);

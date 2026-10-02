@@ -48,8 +48,23 @@ export interface MeetLedgerLocalBridge {
     upload(): Promise<{ assetId?: string }>;
     discard(): Promise<RecState>;
     cancel(): Promise<void>;
+    state(): Promise<RecState>;
     onState(cb: (s: RecState) => void): () => void;
   };
+}
+
+/**
+ * Bridge errors arrive in the page as plain `Error`s whose message is "[code] human readable message"
+ * (contextBridge only preserves `message`). Codes: invalid_input, forbidden, not_found, consent_required,
+ * consent_declined, unauthenticated, local_asr_unavailable, no_model, bad_state, busy, network, internal, ...
+ */
+export function bridgeErrorCode(e: unknown): string | null {
+  const m = /^\[([a-z0-9_]+)\] /.exec(String((e as Error)?.message ?? ''));
+  return m ? m[1]! : null;
+}
+
+export function bridgeErrorMessage(e: unknown): string {
+  return String((e as Error)?.message ?? e).replace(/^\[[a-z0-9_]+\] /, '');
 }
 
 declare global {

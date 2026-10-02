@@ -13,7 +13,10 @@ interface SpeakerShare {
   ms?: number;
   share?: number;
   turns?: number;
+  segments?: number;
 }
+
+const HIDDEN = new Set(['meetingId', 'factsOnly', 'disclaimer']);
 
 const humanize = (k: string) => k.replace(/([A-Z])/g, ' $1').replace(/_/g, ' ').replace(/^./, (c) => c.toUpperCase());
 
@@ -30,7 +33,9 @@ export function CoachTab() {
           const metrics = (data && typeof data === 'object' && 'metrics' in data ? (data.metrics as Record<string, unknown>) : data) ?? {};
           const speakers = (Array.isArray(metrics.speakers) ? metrics.speakers : Array.isArray(metrics.talkTime) ? metrics.talkTime : []) as SpeakerShare[];
           const totalMs = speakers.reduce((n, s) => n + (s.talkMs ?? s.ms ?? 0), 0);
-          const scalars = Object.entries(metrics).filter(([, v]) => typeof v === 'number' || typeof v === 'string' || typeof v === 'boolean');
+          const scalars = Object.entries(metrics).filter(([k, v]) => !HIDDEN.has(k) && (typeof v === 'number' || typeof v === 'string'));
+          const topics = Array.isArray(metrics.topicsWithoutDecision) ? (metrics.topicsWithoutDecision as unknown[]).map(String) : [];
+          const disclaimer = typeof metrics.disclaimer === 'string' ? metrics.disclaimer : null;
           return (
             <>
               {speakers.length > 0 && (
@@ -48,7 +53,7 @@ export function CoachTab() {
                           </span>
                           <span className="bar-value">
                             {Math.round(share * 100)}% · {msToClock(ms)}
-                            {typeof s.turns === 'number' && ` · ${t('coach.turns', { n: s.turns })}`}
+                            {typeof (s.turns ?? s.segments) === 'number' && ` · ${t('coach.turns', { n: (s.turns ?? s.segments) as number })}`}
                           </span>
                         </li>
                       );
@@ -68,7 +73,18 @@ export function CoachTab() {
                   </div>
                 </Card>
               )}
+              {topics.length > 0 && (
+                <Card title={t('coach.topicsWithoutDecision')}>
+                  <p className="field-hint">{t('coach.topicsWithoutDecisionHint')}</p>
+                  <ul className="plain-list">
+                    {topics.map((x, i) => (
+                      <li key={i}>{x}</li>
+                    ))}
+                  </ul>
+                </Card>
+              )}
               {!speakers.length && !scalars.length && <p className="muted">{t('coach.empty')}</p>}
+              {disclaimer && <p className="field-hint">{disclaimer}</p>}
             </>
           );
         }}

@@ -31,7 +31,9 @@ async function call<T>(channel: string, ...args: unknown[]): Promise<T> {
   const r = (await ipcRenderer.invoke(channel, ...args)) as IpcResult<T>;
   if (r && r.ok === true) return r.value;
   const err = r && r.ok === false ? r.error : { code: 'internal', message: 'IPC failed' };
-  throw new BridgeError(err.code, err.message);
+  // contextBridge copies only `message` of an Error into the page world, so the code travels as a "[code] " prefix
+  // (parse with bridgeErrorCode() from src/shared/bridge.ts).
+  throw new BridgeError(err.code, `[${err.code}] ${err.message}`);
 }
 
 function subscribe<T>(channel: string, cb: (v: T) => void): () => void {
@@ -86,6 +88,7 @@ const local: MeetLedgerLocalBridge = {
     upload: () => call(CH.recUpload),
     discard: () => call(CH.recDiscard),
     cancel: () => call(CH.recCancel),
+    state: () => call(CH.recState),
     onState: (cb) => subscribe<RecState>(CH.evtRecState, cb),
   },
 };

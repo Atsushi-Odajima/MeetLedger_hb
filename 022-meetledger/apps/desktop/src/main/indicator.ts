@@ -41,6 +41,7 @@ export class RecordingIndicator {
   private idleIcon: NativeImage | null = null;
   private recIcon = dot(32, [220, 38, 38, 255]);
   private state: RecState | null = null;
+  private minimizeGuarded = new WeakSet<BrowserWindow>();
 
   constructor(private readonly deps: IndicatorDeps) {}
 
@@ -70,10 +71,13 @@ export class RecordingIndicator {
     );
   }
 
+  /** Capture armed or running. Post-processing (transcription / upload) is not "recording". */
   isActive(): boolean {
     const p = this.state?.phase;
-    return p === 'ready' || p === 'recording' || p === 'busy';
+    return p === 'ready' || p === 'recording' || (p === 'busy' && this.capturing);
   }
+
+  private capturing = false;
 
   isRecording(): boolean {
     return this.state?.phase === 'recording';
@@ -81,7 +85,7 @@ export class RecordingIndicator {
 
   private label(): string | null {
     const p = this.state?.phase;
-    return p === 'recording' ? '● 録音中' : p === 'ready' ? '● 録音準備中' : p === 'busy' ? '● 録音処理中' : null;
+    return p === 'recording' ? '● 録音中' : p === 'ready' ? '● 録音準備中' : p === 'busy' && this.capturing ? '● 録音処理中' : null;
   }
 
   /** Title decoration; also applied from 'page-title-updated' so the web page cannot remove it. */
@@ -93,6 +97,9 @@ export class RecordingIndicator {
 
   update(state: RecState): void {
     const wasActive = this.isActive();
+    // 'busy' right after recording (= saving the last chunks) still counts as recording
+    if (state.phase === 'ready' || state.phase === 'recording') this.capturing = true;
+    else if (state.phase !== 'busy') this.capturing = false;
     this.state = state;
     const active = this.isActive();
     const label = this.label();
@@ -104,6 +111,13 @@ export class RecordingIndicator {
     }
     const rec = this.deps.recorderWindow();
     if (rec && !rec.isDestroyed()) {
+      if (!this.minimizeGuarded.has(rec)) {
+        // setMinimizable() is a no-op on Linux: undo minimization while a session is active (all platforms)
+        this.minimizeGuarded.add(rec);
+        rec.on('minimize', () => {
+          if (this.isActive() && !rec.isDestroyed()) setTimeout(() => !rec.isDestroyed() && rec.restore(), 0);
+        });
+      }
       if (active) {
         if (rec.isMinimized()) rec.restore();
         rec.show();

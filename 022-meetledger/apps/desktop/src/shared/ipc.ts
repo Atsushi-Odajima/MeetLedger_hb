@@ -32,6 +32,7 @@ export const CH = {
   recUpload: 'local:rec:upload',
   recDiscard: 'local:rec:discard',
   recCancel: 'local:rec:cancel',
+  recState: 'local:rec:state',
   // ---- events main → renderer
   evtModelProgress: 'evt:model:progress',
   evtRecState: 'evt:rec:state',
@@ -69,6 +70,7 @@ export const CHANNEL_ACL: Record<string, readonly SenderKind[]> = {
   [CH.recUpload]: ['recorder'],
   [CH.recDiscard]: ['recorder'],
   [CH.recCancel]: ['recorder'],
+  [CH.recState]: ['recorder'],
 };
 
 /** Every IPC reply is wrapped so errors arrive with a stable code (preload unwraps and throws). */

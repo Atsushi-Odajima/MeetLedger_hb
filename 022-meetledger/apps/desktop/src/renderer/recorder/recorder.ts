@@ -5,7 +5,7 @@
 
 import type { Capabilities, LocalTranscriptResult, RecState } from '../../shared/ipc';
 import type { MeetingSummaryDto } from '../../shared/dto';
-import '../../shared/bridge';
+import { bridgeErrorCode, bridgeErrorMessage } from '../../shared/bridge';
 import { DualChannelRecorder } from './capture';
 
 const D = window.meetledgerDesktop!;
@@ -59,6 +59,7 @@ let result: LocalTranscriptResult | null = null;
 let submitted = false;
 let uploaded = false;
 let busy = false;
+let stopping = false;
 let meterTimer: number | null = null;
 
 const CONSENT_LABEL: Record<string, string> = {
@@ -80,10 +81,7 @@ function warn(msg: string): void {
   el.warnings.prepend(li);
 }
 
-function errMsg(e: unknown): string {
-  const err = e as { code?: string; message?: string };
-  return err?.message ?? String(e);
-}
+const errMsg = bridgeErrorMessage;
 
 async function guarded(label: string, fn: () => Promise<void>): Promise<void> {
   if (busy) return;
@@ -92,7 +90,7 @@ async function guarded(label: string, fn: () => Promise<void>): Promise<void> {
   try {
     await fn();
   } catch (e) {
-    const code = (e as { code?: string }).code;
+    const code = bridgeErrorCode(e);
     if (code === 'unauthenticated') showLoginHint();
     warn(`${label}: ${errMsg(e)}`);
     setStatus(`${label}に失敗しました: ${errMsg(e)}`);
@@ -212,9 +210,9 @@ function render(): void {
   const idle = phase === 'idle';
   const active = phase === 'ready' || phase === 'recording' || (phase === 'busy' && !!rec);
 
-  el.banner.hidden = !(phase === 'ready' || phase === 'recording' || phase === 'busy');
+  el.banner.hidden = !(phase === 'ready' || phase === 'recording' || stopping);
   el.banner.classList.toggle('armed', phase === 'ready');
-  el.recLabel.textContent = phase === 'recording' ? '● 録音中' : phase === 'ready' ? '● 録音準備完了（まだ録音していません）' : '● 処理中';
+  el.recLabel.textContent = phase === 'recording' ? '● 録音中' : phase === 'ready' ? '● 録音準備完了（まだ録音していません）' : '● 録音を保存しています';
   el.sources.textContent =
     phase === 'recording' ? (state?.systemAudioActive ? 'マイク（左）＋ システム音声（右）' : 'マイクのみ') : (state?.meetingTitle ?? '');
 
@@ -358,27 +356,36 @@ el.start.addEventListener('click', () =>
 
 el.stop.addEventListener('click', () =>
   void guarded('録音停止', async () => {
-    const r = rec;
-    if (r) {
-      setStatus('録音データを保存しています…');
-      await r.stop();
-      if (r.needsFallbackConversion && r.fallbackChunks.length) {
-        setStatus('音声を 16 kHz に変換しています…');
-        const { convertToAsrPcm } = (await import(new URL('./convert.js', location.href).href)) as typeof import('./convert');
-        const c = await convertToAsrPcm(new Blob(r.fallbackChunks, { type: 'audio/webm' }));
-        const step = 16_000 * 2 * 60; // 1 minute of PCM per IPC call
-        for (let off = 0; off < c.pcm.byteLength; off += step) {
-          await L.recorder.data({ pcm: c.pcm.buffer.slice(off, Math.min(off + step, c.pcm.byteLength)) as ArrayBuffer });
-        }
-        for (let off = 0; off < c.env.length; off += 1200) {
-          await L.recorder.data({ env: c.env.slice(off, off + 1200).buffer as ArrayBuffer });
-        }
-      }
+    stopping = true;
+    try {
+      await stopRecording();
+    } finally {
+      stopping = false;
     }
-    rec = null;
-    state = await L.recorder.stop();
   }),
 );
+
+async function stopRecording(): Promise<void> {
+  const r = rec;
+  if (r) {
+    setStatus('録音データを保存しています…');
+    await r.stop();
+    if (r.needsFallbackConversion && r.fallbackChunks.length) {
+      setStatus('音声を 16 kHz に変換しています…');
+      const { convertToAsrPcm } = (await import(new URL('./convert.js', location.href).href)) as typeof import('./convert');
+      const c = await convertToAsrPcm(new Blob(r.fallbackChunks, { type: 'audio/webm' }));
+      const step = 16_000 * 2 * 60; // 1 minute of PCM per IPC call
+      for (let off = 0; off < c.pcm.byteLength; off += step) {
+        await L.recorder.data({ pcm: c.pcm.buffer.slice(off, Math.min(off + step, c.pcm.byteLength)) as ArrayBuffer });
+      }
+      for (let off = 0; off < c.env.length; off += 1200) {
+        await L.recorder.data({ env: c.env.slice(off, off + 1200).buffer as ArrayBuffer });
+      }
+    }
+  }
+  rec = null;
+  state = await L.recorder.stop();
+}
 
 el.cancelPrep.addEventListener('click', () =>
   void guarded('準備の取り消し', async () => {
@@ -425,6 +432,8 @@ L.recorder.onState((s) => {
 
 // ---------------------------------------------------------------- init
 (async () => {
+  // after a reload the main process may still hold a stopped session (results not yet sent)
+  state = await L.recorder.state().catch(() => null);
   render();
   const params = new URLSearchParams(location.search);
   const wsParam = params.get('ws');
@@ -437,7 +446,8 @@ L.recorder.onState((s) => {
     await loadMeetings(mParam);
     setStatus('会議を選択してください。');
   } catch (e) {
-    if ((e as { code?: string }).code === 'unauthenticated' || (e as { code?: string }).code === 'not_configured') showLoginHint();
+    const code = bridgeErrorCode(e);
+    if (code === 'unauthenticated' || code === 'not_configured' || code === 'network') showLoginHint();
     setStatus(errMsg(e));
   }
   render();

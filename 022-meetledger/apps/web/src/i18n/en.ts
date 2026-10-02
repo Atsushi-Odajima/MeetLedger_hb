@@ -1028,4 +1028,17 @@ export const en: Record<keyof typeof ja, string> = {
   'connectorProvider.hubspot': 'HubSpot',
   'connectorProvider.salesforce': 'Salesforce',
   'connectorProvider.teams': 'Microsoft Teams',
+  // ---- added
+  'decision.revokedNoReplacement': 'The previous decision was revoked (no replacement)',
+  'meeting.candidatesN': '{n} candidates',
+  'question.owner': 'Owner',
+  'coach.topicsWithoutDecision': 'Topics without a decision',
+  'coach.topicsWithoutDecisionHint': 'Summary topics with no recorded decision (a factual list, not an evaluation).',
+  'coach.metric.durationMs': 'Meeting length',
+  'coach.metric.openQuestions': 'Open questions',
+  'coach.metric.actions': 'Actions',
+  'coach.metric.actionsWithoutOwner': 'Actions without an owner',
+  'coach.metric.actionsWithoutDue': 'Actions without a due date',
+  'coach.metric.decisionCount': 'Decisions (incl. candidates)',
+  'coach.metric.confirmedDecisionCount': 'Confirmed decisions',
 };

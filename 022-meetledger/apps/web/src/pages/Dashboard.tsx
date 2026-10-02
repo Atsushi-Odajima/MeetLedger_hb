@@ -7,7 +7,8 @@ import { useSession } from '../state/session';
 import { useWs } from '../state/workspace';
 import { useApi } from '../lib/hooks';
 import { ApiError, listOf, qs } from '../lib/api';
-import type { DashboardDto } from '../lib/types';
+import { flattenGrouped, type DashboardDto, type DecisionChangeDto } from '../lib/types';
+import { DecisionChangeItem } from '../components/ledger';
 
 function startOfToday(): string {
   const d = new Date();
@@ -89,9 +90,9 @@ export function DashboardPage() {
   const needsReview = d.needsReview ?? [];
   const myActions = (d.myActions ?? []) as ActionDto[];
   const myCommitments = (d.myCommitments ?? []) as CommitmentDto[];
-  const waiting = (d.waitingOnOthers ?? []) as CommitmentDto[];
-  const overdue = d.overdue ?? [];
-  const changed = (d.decisionsChanged ?? []) as DecisionDto[];
+  const waiting = flattenGrouped(d.waitingOnOthers);
+  const overdue = flattenGrouped(d.overdue);
+  const changed = d.decisionsChanged ?? [];
   const questions = (d.openQuestions ?? []) as QuestionDto[];
 
   return (
@@ -137,8 +138,8 @@ export function DashboardPage() {
         </Section>
         <Section id="dash-waiting" titleKey="dash.waiting" count={waiting.length} empty={!waiting.length}>
           <ul className="items">
-            {waiting.slice(0, 6).map((c) => (
-              <CommitmentItem key={c.id} c={c} />
+            {waiting.slice(0, 8).map((x) => (
+              <AnyLedgerItem key={(x as { id: string }).id} item={x as unknown as Record<string, unknown>} />
             ))}
           </ul>
         </Section>
@@ -151,9 +152,9 @@ export function DashboardPage() {
         </Section>
         <Section id="dash-changed" titleKey="dash.decisionsChanged" count={changed.length} empty={!changed.length}>
           <ul className="items">
-            {changed.slice(0, 5).map((x) => (
-              <DecisionItem key={x.id} decision={x} />
-            ))}
+            {changed.slice(0, 5).map((x, i) =>
+              'previous' in x ? <DecisionChangeItem key={x.previous.id ?? i} change={x as DecisionChangeDto} /> : <DecisionItem key={x.id} decision={x as DecisionDto} />,
+            )}
           </ul>
         </Section>
         <Section id="dash-questions" titleKey="dash.openQuestions" count={questions.length} empty={!questions.length}>

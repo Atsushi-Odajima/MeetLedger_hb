@@ -172,4 +172,5 @@ export function registerIpc(deps: IpcDeps): void {
   handle(CH.recUpload, 0, ({ wc }) => deps.session.upload(wc.id));
   handle(CH.recDiscard, 0, ({ wc }) => deps.session.discard(wc.id));
   handle(CH.recCancel, 0, ({ wc }) => deps.session.abandon(wc.id));
+  handle(CH.recState, 0, ({ wc }) => deps.session.stateFor(wc.id));
 }

@@ -20,6 +20,7 @@ import { api, listOf, NetworkError } from '../lib/api';
 import { actionOpId, getOp, queueActionStatus, replayOutbox } from '../lib/offline/outbox';
 import { useOutbox } from '../lib/hooks';
 import type { PersonDto } from '@meetledger/shared';
+import type { DecisionChangeDto, SourceInfo } from '../lib/types';
 
 // ------------------------------------------------------------------ people lookup (cached per workspace)
 const peopleCache = new Map<string, Promise<PersonDto[]>>();
@@ -63,7 +64,7 @@ export function MeetingPrivacyBadges({ m }: { m: Pick<MeetingDto, 'aiEnabled' | 
           {t('privacy.confidential')}
         </Badge>
       )}
-      {!m.aiEnabled && <Badge tone="neutral">{t('privacy.aiOff')}</Badge>}
+      {m.aiEnabled === false && <Badge tone="neutral">{t('privacy.aiOff')}</Badge>}
       {m.transcriptionMode === 'local' && <Badge tone="info">{t('privacy.local')}</Badge>}
       {m.transcriptionMode === 'cloud' && <Badge tone="neutral">{t('privacy.cloud')}</Badge>}
       {m.visibility === 'private' && (
@@ -75,7 +76,7 @@ export function MeetingPrivacyBadges({ m }: { m: Pick<MeetingDto, 'aiEnabled' | 
   );
 }
 
-export function MeetingRow({ m, showDate = true }: { m: MeetingDto & { participantCount?: number }; showDate?: boolean }) {
+export function MeetingRow({ m, showDate = true }: { m: MeetingDto & { participantCount?: number; candidates?: number; candidateCount?: number }; showDate?: boolean }) {
   const { t, fmt } = useI18n();
   const { p } = useWs();
   const when = m.scheduledStart ?? m.startedAt ?? m.createdAt;
@@ -99,6 +100,7 @@ export function MeetingRow({ m, showDate = true }: { m: MeetingDto & { participa
           <Badge tone={m.status === 'needs_review' ? 'candidate' : m.status === 'live' ? 'danger' : 'neutral'}>{t(`meetingStatus.${m.status}` as MsgKey)}</Badge>
           <span>{t(`meetingType.${m.meetingType}` as MsgKey)}</span>
           {typeof m.participantCount === 'number' && <span>{t('meeting.participantsN', { n: m.participantCount })}</span>}
+          {!!(m.candidates ?? m.candidateCount) && <Badge tone="candidate">{t('meeting.candidatesN', { n: m.candidates ?? m.candidateCount ?? 0 })}</Badge>}
           <MeetingPrivacyBadges m={m} />
         </div>
       </div>
@@ -175,7 +177,7 @@ export function ActionItem({ action, onChange, showSource = true }: { action: Ac
   useEffect(() => setLocal(action), [action]);
   const queued = ops.find((o) => o.kind === 'action.status' && o.actionId === action.id && o.wsId === wsId);
   const isCandidate = local.status === 'candidate';
-  const assignee = personName(byId, local.assigneePersonId, local.assigneeText);
+  const assignee = personName(byId, local.assigneePersonId, local.assigneeText ?? (local as { assigneeName?: string | null }).assigneeName);
   const editable = can('member') && !isCandidate && local.status !== 'rejected';
   const change = async (s: ActionStatus) => {
     const prev = local;
@@ -316,8 +318,9 @@ export function CommitmentItem({ c, actions }: { c: CommitmentDto; actions?: Rea
   const { t, fmt } = useI18n();
   const { byId } = usePeople();
   const isCandidate = c.status === 'candidate';
-  const by = personName(byId, c.promisedByPersonId, c.promisedByText) ?? t('commitment.unknown');
-  const to = personName(byId, c.promisedToPersonId, c.promisedToText) ?? t('commitment.unknown');
+  const names = c as { promisedByName?: string | null; promisedToName?: string | null };
+  const by = personName(byId, c.promisedByPersonId, c.promisedByText ?? names.promisedByName) ?? t('commitment.unknown');
+  const to = personName(byId, c.promisedToPersonId, c.promisedToText ?? names.promisedToName) ?? t('commitment.unknown');
   return (
     <li className={`item${isCandidate ? ' item-candidate' : ''}${c.status === 'done' ? ' item-done' : ''}`}>
       <div className="item-main">
@@ -356,6 +359,11 @@ export function QuestionItem({ q, actions }: { q: QuestionDto; actions?: ReactNo
         </div>
         <div className="item-meta">
           {!isCandidate && <Badge tone={q.status === 'open' ? 'info' : 'neutral'}>{t(`questionStatus.${q.status}` as MsgKey)}</Badge>}
+          {(q as { ownerName?: string | null }).ownerName && (
+            <span>
+              {t('question.owner')}: {(q as { ownerName?: string | null }).ownerName}
+            </span>
+          )}
           {q.dueDate && (
             <span>
               {t('action.due')}: {fmt.date(q.dueDate)}
@@ -374,11 +382,42 @@ export function QuestionItem({ q, actions }: { q: QuestionDto; actions?: ReactNo
   );
 }
 
-/** Generic renderer for mixed ledger lists (dashboard "overdue" etc.). */
+/** Generic renderer for mixed ledger lists (dashboard "overdue" etc.). Uses `type` when the server provides it. */
 export function AnyLedgerItem({ item }: { item: Record<string, unknown> }) {
-  if ('question' in item) return <QuestionItem q={item as unknown as QuestionDto} />;
-  if ('promisedByText' in item || 'direction' in item) return <CommitmentItem c={item as unknown as CommitmentDto} />;
-  if ('description' in item) return <ActionItem action={item as unknown as ActionDto} />;
-  if ('text' in item) return <DecisionItem decision={item as unknown as DecisionDto} />;
+  const type = typeof item.type === 'string' ? item.type : null;
+  if (type === 'question' || (!type && 'question' in item)) return <QuestionItem q={item as unknown as QuestionDto} />;
+  if (type === 'commitment' || (!type && ('promisedByText' in item || 'direction' in item))) return <CommitmentItem c={item as unknown as CommitmentDto} />;
+  if (type === 'action' || (!type && 'description' in item)) return <ActionItem action={item as unknown as ActionDto} />;
+  if (type === 'decision' || (!type && 'text' in item)) return <DecisionItem decision={item as unknown as DecisionDto} />;
   return null;
+}
+
+/** A decision that was changed: previous → current (kept in history, never deleted). */
+export function DecisionChangeItem({ change }: { change: DecisionChangeDto }) {
+  const { t, fmt } = useI18n();
+  return (
+    <li className="item">
+      <div className="item-main">
+        <p className="strike change-prev">{change.previous.text}</p>
+        {change.current ? (
+          <p className="item-title">
+            <span aria-hidden="true">→</span> <span>{change.current.text}</span>
+          </p>
+        ) : (
+          <p className="muted">{t('decision.revokedNoReplacement')}</p>
+        )}
+        <div className="item-meta">
+          <Badge tone="info">{t('decision.changed')}</Badge>
+          {change.changedAt && <span>{fmt.date(change.changedAt)}</span>}
+        </div>
+        <SourceLink source={toSourceRef(change.current?.source ?? change.previous.source)} />
+      </div>
+    </li>
+  );
+}
+
+/** Lighter `{meetingId, meetingTitle, meetingDate}` sources → SourceRef. */
+export function toSourceRef(s: SourceInfo | SourceRef | null | undefined): SourceRef | null {
+  if (!s) return null;
+  return { segmentIds: [], startMs: null, endMs: null, quote: null, ...s } as SourceRef;
 }

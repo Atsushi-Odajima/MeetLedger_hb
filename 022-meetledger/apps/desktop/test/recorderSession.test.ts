@@ -135,3 +135,39 @@ describe('RecorderSession', () => {
     expect((await store.clear()).removed).toBe(2);
   });
 });
+
+describe('RecorderSession async safety', () => {
+  it('a transcription that finishes after the window was closed cannot resurrect the old session', async () => {
+    let release: (v: { model: string; language: string; diarization: boolean; segments: unknown[] }) => void = () => undefined;
+    const store = new RecordingStore(dir);
+    const s = new RecorderSession({
+      api: {
+        meeting: async () => meeting('confirmed'),
+        start: async () => meeting('confirmed'),
+        end: async () => undefined,
+      } as unknown as MeetLedgerApi,
+      store,
+      transcribeWav: () => new Promise((r) => (release = r)),
+      emit: () => undefined,
+      onStateChange: () => undefined,
+      onSystemAudioObserved: () => undefined,
+      platform: 'linux',
+    });
+    await s.prepare(OWNER, input());
+    s.started(OWNER, { systemAudioActive: false });
+    await s.data(OWNER, { pcm: new Uint8Array(32000), webm: null, env: null });
+    await s.stop(OWNER);
+    const pending = s.transcribe(OWNER);
+    await s.abandon(OWNER); // window closed while ASR is running
+    release({ model: 'm', language: 'ja', diarization: false, segments: [{ startMs: 0, endMs: 10, text: 'x' }] });
+    await expect(pending).rejects.toMatchObject({ code: 'aborted' });
+    expect(s.state.phase).toBe('idle');
+  });
+
+  it('concurrent prepare calls arm only one session', async () => {
+    const { s } = setup('confirmed');
+    const r = await Promise.allSettled([s.prepare(OWNER, input()), s.prepare(OWNER, input())]);
+    expect(r.filter((x) => x.status === 'fulfilled')).toHaveLength(1);
+    expect(calls.filter((c) => c === 'start')).toHaveLength(1);
+  });
+});

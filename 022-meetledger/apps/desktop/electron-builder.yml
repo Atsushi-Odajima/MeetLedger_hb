@@ -35,7 +35,12 @@ electronFuses:
 
 mac:
   category: public.app-category.productivity
-  icon: build/icon.png
+  icon: build/icon.icns
+  # ship only the macOS sherpa-onnx prebuilts (npm installs the host's; for the other arch run
+  # `npm install --no-save --os=darwin --cpu=<arch> sherpa-onnx-darwin-<arch>` or build each arch on its own runner)
+  files:
+    - "!node_modules/sherpa-onnx-win-*/**"
+    - "!node_modules/sherpa-onnx-linux-*/**"
   target:
     - target: dmg
       arch: [arm64, x64]
@@ -53,7 +58,10 @@ dmg:
   sign: false
 
 win:
-  icon: build/icon.png
+  icon: build/icon.ico
+  files:
+    - "!node_modules/sherpa-onnx-darwin-*/**"
+    - "!node_modules/sherpa-onnx-linux-*/**"
   target:
     - target: nsis
       arch: [x64]
@@ -73,6 +81,11 @@ nsis:
 linux:
   icon: build/icon.png
   category: Office
+  executableName: meetledger-desktop
+  syncDesktopName: true
+  files:
+    - "!node_modules/sherpa-onnx-darwin-*/**"
+    - "!node_modules/sherpa-onnx-win-*/**"
   target:
     - target: AppImage
       arch: [x64]

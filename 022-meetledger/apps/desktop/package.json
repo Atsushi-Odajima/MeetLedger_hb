@@ -1,6 +1,7 @@
 {
   "name": "meetledger-desktop",
   "productName": "MeetLedger Desktop",
+  "desktopName": "meetledger-desktop.desktop",
   "version": "1.0.0",
   "private": true,
   "description": "MeetLedger desktop companion — system audio capture (mic L / system R) and on-device transcription",

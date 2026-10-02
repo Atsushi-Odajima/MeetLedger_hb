@@ -124,6 +124,11 @@ export interface MemberDto {
 export interface MediaAssetDto {
   id: string;
   kind?: string;
+  mime?: string;
+  originalName?: string | null;
+  playable?: boolean;
+  urlExpiresAt?: string | null;
+  retentionUntil?: string | null;
   mimeType?: string;
   mime_type?: string;
   sizeBytes?: number;
@@ -152,16 +157,38 @@ export interface LedgerBundle {
   contradictions: ContradictionDto[];
 }
 
+/** Lighter item shapes used by dashboard / memory / brief (followup module). */
+export interface SourceInfo {
+  meetingId: string | null;
+  meetingTitle?: string | null;
+  meetingDate?: string | null;
+  startMs?: number | null;
+}
+export interface DecisionChangeDto {
+  changedAt: string | null;
+  previous: { id: string; text: string; source: SourceInfo };
+  current: { id: string; text: string; source: SourceInfo } | null;
+}
+type Grouped<T> = T[] | { actions?: T[]; commitments?: T[] };
+
 export interface DashboardDto {
   today?: MeetingDto[];
   upcoming?: MeetingDto[];
-  needsReview?: (MeetingDto & { candidateCount?: number })[];
+  needsReview?: (MeetingDto & { candidates?: number; candidateCount?: number })[];
   myActions?: ActionDto[];
   myCommitments?: CommitmentDto[];
-  waitingOnOthers?: CommitmentDto[];
-  overdue?: (ActionDto | CommitmentDto)[];
-  decisionsChanged?: DecisionDto[];
+  waitingOnOthers?: Grouped<ActionDto | CommitmentDto>;
+  overdue?: Grouped<ActionDto | CommitmentDto>;
+  decisionsChanged?: (DecisionDto | DecisionChangeDto)[];
   openQuestions?: QuestionDto[];
+  counts?: Record<string, number>;
+}
+
+/** Flattens `T[] | {actions, commitments}` into one list. */
+export function flattenGrouped<T>(g: Grouped<T> | undefined | null): T[] {
+  if (!g) return [];
+  if (Array.isArray(g)) return g;
+  return [...(g.commitments ?? []), ...(g.actions ?? [])];
 }
 
 export interface NotificationDto {
@@ -293,7 +320,12 @@ export interface AgendaItemDto {
 
 export interface SegmentRevisionDto {
   revision: number;
-  text: string;
+  text?: string;
+  newText?: string;
+  oldText?: string;
+  newSpeakerLabel?: string | null;
+  oldSpeakerLabel?: string | null;
+  editedAt?: string;
   speakerId?: string | null;
   editedBy?: string | null;
   editedByName?: string | null;

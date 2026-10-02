@@ -69,9 +69,15 @@ function RevisionHistory({ segmentId }: { segmentId: string }) {
       {items.map((r) => (
         <li key={r.revision}>
           <p className="small-title">
-            {t('transcript.revision', { n: r.revision })} · {r.editedByName ?? r.editedBy ?? ''} {r.createdAt && `· ${fmt.dateTime(r.createdAt)}`}
+            {t('transcript.revision', { n: r.revision })} · {r.editedByName ?? r.editedBy ?? ''} {(r.editedAt ?? r.createdAt) && `· ${fmt.dateTime(r.editedAt ?? r.createdAt)}`}
           </p>
-          <p>{r.text}</p>
+          {r.oldText !== undefined && r.oldText !== (r.newText ?? r.text) && <p className="strike">{r.oldText}</p>}
+          <p>{r.newText ?? r.text}</p>
+          {r.oldSpeakerLabel && r.newSpeakerLabel && r.oldSpeakerLabel !== r.newSpeakerLabel && (
+            <p className="field-hint">
+              {r.oldSpeakerLabel} → {r.newSpeakerLabel}
+            </p>
+          )}
         </li>
       ))}
     </ol>
@@ -190,7 +196,12 @@ function SegmentRow({
     try {
       const body: Record<string, unknown> = { expectedRevision };
       if (text !== s.text) body.text = text;
-      if ((speakerId || null) !== (s.speakerId ?? null)) body.speakerId = speakerId || null;
+      // The API moves a segment to another speaker but cannot clear the speaker (speakerId is not nullable).
+      if (speakerId && speakerId !== (s.speakerId ?? '')) body.speakerId = speakerId;
+      if (body.text === undefined && body.speakerId === undefined) {
+        setEditing(false);
+        return;
+      }
       const r = await api.patch<SegmentDto | { segment: SegmentDto }>(a(`/segments/${s.id}`), body);
       const seg = (r && 'segment' in (r as object) ? (r as { segment: SegmentDto }).segment : (r as SegmentDto)) ?? null;
       onSaved(seg && seg.id ? seg : { ...s, text, speakerId: speakerId || null, revision: expectedRevision + 1 });
@@ -199,8 +210,9 @@ function SegmentRow({
       toast.announce(t('transcript.saved'));
     } catch (e) {
       if (e instanceof ApiError && e.status === 409) {
-        const d = (e.details ?? {}) as { current?: SegmentDto; text?: string; revision?: number };
-        setConflict({ text: d.current?.text ?? d.text ?? '', revision: d.current?.revision ?? d.revision ?? s.revision + 1 });
+        const d = (e.details ?? {}) as { server?: SegmentDto; current?: SegmentDto; text?: string; revision?: number };
+        const cur = d.server ?? d.current;
+        setConflict({ text: cur?.text ?? d.text ?? '', revision: cur?.revision ?? d.revision ?? s.revision + 1 });
       } else toast.error(e);
     } finally {
       setBusy(false);
@@ -227,7 +239,7 @@ function SegmentRow({
               label={t('transcript.speaker')}
               value={speakerId}
               onChange={(e) => setSpeakerId(e.target.value)}
-              options={[{ value: '', label: t('transcript.noSpeaker') }, ...speakers.map((x) => ({ value: x.id, label: x.displayName ?? x.label }))]}
+              options={[...(s.speakerId ? [] : [{ value: '', label: t('transcript.noSpeaker') }]), ...speakers.map((x) => ({ value: x.id, label: x.displayName ?? x.label }))]}
             />
             {conflict && (
               <Alert tone="warn" title={t('transcript.conflict')}>
@@ -311,7 +323,7 @@ export function TranscriptTab() {
 
   useEffect(() => setSegments(tr.data?.segments ?? []), [tr.data]);
   const assets = listOf<MediaAssetDto>(media.data, 'assets', 'media');
-  const asset = assets.find((x) => x.url && /audio|video/.test(x.mimeType ?? x.mime_type ?? 'audio')) ?? assets.find((x) => x.url);
+  const asset = assets.find((x) => x.url && x.playable !== false && /audio|video/.test(x.mime ?? x.mimeType ?? x.mime_type ?? 'audio')) ?? assets.find((x) => x.url);
   useEffect(() => setAudioSrc(asset?.url ?? null), [asset?.url]);
 
   const matches = useMemo(() => (dq ? segments.filter((s) => s.text.toLowerCase().includes(dq.toLowerCase())).map((s) => s.id) : []), [segments, dq]);

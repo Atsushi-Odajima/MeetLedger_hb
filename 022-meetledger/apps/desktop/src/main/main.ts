@@ -24,8 +24,9 @@ if (!app.isPackaged && process.env.MEETLEDGER_USER_DATA_DIR) {
   app.setPath('userData', path.resolve(process.env.MEETLEDGER_USER_DATA_DIR));
 }
 // OS-level sandbox for every renderer (webPreferences.sandbox is also set explicitly per window).
-// Dev/CI only: `--no-sandbox` (required when Chromium runs as root, e.g. the xvfb smoke test in a container) skips it.
-if (app.isPackaged || !app.commandLine.hasSwitch('no-sandbox')) app.enableSandbox();
+// An explicit `--no-sandbox` (only needed when Chromium runs as root, e.g. CI containers) already disables OS
+// sandboxing; enableSandbox() would then crash the child processes, so it is skipped in that case.
+if (!app.commandLine.hasSwitch('no-sandbox')) app.enableSandbox();
 
 const log = (msg: string, meta?: Record<string, unknown>) => {
   // Never log transcript text, audio, tokens or URLs with credentials — ids / counts / codes only.
@@ -357,7 +358,7 @@ function openSettings(): void {
 function openRecorder(ref: { workspaceId: string; meetingId: string } | null): void {
   if (recorderWindow && !recorderWindow.isDestroyed()) {
     // never retarget a window that is recording; otherwise reload with the requested meeting
-    if (ref && !recSession.isActive()) void recorderWindow.loadURL(`${LOCAL_PAGES.recorder}?ws=${ref.workspaceId}&m=${ref.meetingId}`);
+    if (ref && recSession.state.phase === 'idle') void recorderWindow.loadURL(`${LOCAL_PAGES.recorder}?ws=${ref.workspaceId}&m=${ref.meetingId}`);
     recorderWindow.show();
     recorderWindow.focus();
     return;
