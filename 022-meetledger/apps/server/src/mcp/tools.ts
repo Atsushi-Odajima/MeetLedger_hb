@@ -93,6 +93,14 @@ const list = (b: any, ...keys: string[]): any[] => {
   return [];
 };
 
+/** Keys never returned through MCP even when a REST DTO is passed through (PII the assistant does not need). */
+const OMIT_KEYS = new Set(['email', 'emails', 'userEmail', 'csrfToken']);
+function stripKeys(v: any, omit: Set<string>, depth = 0): any {
+  if (depth > 12 || v === null || typeof v !== 'object') return v;
+  if (Array.isArray(v)) return v.map((x) => stripKeys(x, omit, depth + 1));
+  return Object.fromEntries(Object.entries(v).filter(([k]) => !omit.has(k)).map(([k, x]) => [k, stripKeys(x, omit, depth + 1)]));
+}
+
 // ------------------------------------------------------------------ field pickers (only what an assistant needs)
 
 const pickSource = (s: any) => (s ? { meeting_id: s.meetingId ?? null, meeting_title: s.meetingTitle ?? null, meeting_date: s.meetingDate ?? null, start_ms: s.startMs ?? null, quote: s.quote ?? null } : null);
@@ -285,7 +293,7 @@ export function buildMcpServer(deps: Pick<Deps, 'config' | 'pool' | 'clock' | 'l
       if (b.has('GET', '/meetings/:id/brief')) {
         const r = await b.get(`/meetings/${a.meeting_id}/brief`);
         if (r.status !== 200) return restError(r);
-        return ok({ meeting_id: a.meeting_id, brief: r.body });
+        return ok({ meeting_id: a.meeting_id, brief: stripKeys(r.body, OMIT_KEYS) });
       }
       // Fallback (brief module not deployed): basic meeting facts only.
       const m = await loadMeeting(b, a.meeting_id);

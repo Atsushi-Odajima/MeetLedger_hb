@@ -2,7 +2,8 @@
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { ACTION_STATUSES, COMMITMENT_STATUSES, QUESTION_STATUSES } from '@meetledger/shared';
-import type { Deps } from '../../context';
+import type { Deps, WsCtx } from '../../context';
+import { emitWebhookEvent, type WebhookEvent } from '../connectors/webhooks';
 import { one, rows } from '../../db/pool';
 import { badRequest, conflict } from '../../lib/errors';
 import { body, iso, parse, query, wsIdParams, wsParams, zUuid } from '../../lib/http';
@@ -40,6 +41,18 @@ async function visibleMeetingOrThrow(db: any, scope: LedgerScope, meetingId: str
 export default async function ledgerRoutes(app: FastifyInstance, deps: Deps) {
   /** Ledger content changed -> re-index the affected meetings (search module job). */
   const reindex = (ctx: { orgId: string }, db: any, ...meetingIds: (string | null | undefined)[]) => enqueueReindex(db, deps.jobs, ctx.orgId, meetingIds);
+  /** Outbound webhooks (connectors module): ids only, never content. Only human-confirmed ledger changes are announced. */
+  const hook = (ctx: WsCtx, db: any, event: WebhookEvent, data: Record<string, unknown>, key?: string) =>
+    emitWebhookEvent(db, deps, { orgId: ctx.orgId, workspaceId: ctx.workspaceId }, event, data, key);
+  const announceAccepted = async (ctx: WsCtx, db: any, type: LedgerType, row: any) => {
+    if (type === 'decision') await hook(ctx, db, 'decision.confirmed', { decisionId: row.id, meetingId: row.meeting_id ?? null }, `decision.confirmed:${row.id}`);
+    else if (type === 'action') await hook(ctx, db, 'action.created', { actionId: row.id, meetingId: row.meeting_id ?? null }, `action.created:${row.id}`);
+    else if (type === 'commitment') await hook(ctx, db, 'commitment.updated', { commitmentId: row.id, meetingId: row.meeting_id ?? null, status: row.status });
+  };
+  const announceSupersede = async (ctx: WsCtx, db: any, oldRow: any, newRow: any) => {
+    await hook(ctx, db, 'decision.changed', { decisionId: newRow.id, supersededDecisionId: oldRow.id, meetingId: newRow.meeting_id ?? null }, `decision.changed:${oldRow.id}:${newRow.id}`);
+    await hook(ctx, db, 'decision.confirmed', { decisionId: newRow.id, meetingId: newRow.meeting_id ?? null }, `decision.confirmed:${newRow.id}`);
+  };
   // ================================================================ decisions
   app.get('/api/w/:workspaceId/decisions', async (req) => {
     const { workspaceId } = parse(wsParams, req.params);
@@ -68,6 +81,8 @@ export default async function ledgerRoutes(app: FastifyInstance, deps: Deps) {
       const scope = scopeOf(ctx);
       const created = await createDecision(db, scope, b);
       await reindex(ctx, db, created.meeting_id);
+      if (created.supersedes_decision_id) await announceSupersede(ctx, db, { id: created.supersedes_decision_id }, created);
+      else await announceAccepted(ctx, db, 'decision', created);
       return itemDto(db, scope, 'decision', created);
     });
   });
@@ -98,6 +113,8 @@ export default async function ledgerRoutes(app: FastifyInstance, deps: Deps) {
         await db.query('UPDATE decisions SET status=$2, updated_at=now() WHERE id=$1', [id, status]);
         await ledgerEvent(db, { orgId: ctx.orgId, workspaceId, type: 'decision', id, event: 'status_changed', byUserId: ctx.userId, diff: { from: row.status, to: status } });
       }
+      if (row.review_state === 'confirmed' && (Object.keys(r.diff).length || (status && status !== row.status)))
+        await hook(ctx, db, 'decision.changed', { decisionId: id, meetingId: row.meeting_id ?? null, change: status && status !== row.status ? status : 'edited' });
       await reindex(ctx, db, row.meeting_id);
       return itemDto(db, scope, 'decision', await loadItem(db, scope, 'decision', id));
     });
@@ -159,6 +176,7 @@ export default async function ledgerRoutes(app: FastifyInstance, deps: Deps) {
       const scope = scopeOf(ctx);
       const r = await supersedeDecision(db, scope, id, b);
       await reindex(ctx, db, r.old.meeting_id, r.new.meeting_id);
+      await announceSupersede(ctx, db, r.old, r.new);
       return { old: await itemDto(db, scope, 'decision', r.old), new: await itemDto(db, scope, 'decision', r.new) };
     });
   });
@@ -200,6 +218,7 @@ export default async function ledgerRoutes(app: FastifyInstance, deps: Deps) {
       await applyEdits(db, scope, 'action', row, rest);
       await ledgerEvent(db, { orgId: ctx.orgId, workspaceId, type: 'action', id: row.id, event: 'created', byUserId: ctx.userId, diff: { manual: true } });
       await reindex(ctx, db, row.meeting_id);
+      await announceAccepted(ctx, db, 'action', row);
       return itemDto(db, scope, 'action', await loadItem(db, scope, 'action', row.id));
     });
   });
@@ -241,6 +260,7 @@ export default async function ledgerRoutes(app: FastifyInstance, deps: Deps) {
       await applyEdits(db, scope, 'commitment', row, rest);
       await ledgerEvent(db, { orgId: ctx.orgId, workspaceId, type: 'commitment', id: row.id, event: 'created', byUserId: ctx.userId, diff: { manual: true } });
       await reindex(ctx, db, row.meeting_id);
+      await announceAccepted(ctx, db, 'commitment', row);
       return itemDto(db, scope, 'commitment', await loadItem(db, scope, 'commitment', row.id));
     });
   });
@@ -311,6 +331,11 @@ export default async function ledgerRoutes(app: FastifyInstance, deps: Deps) {
         }
         if (status) await setItemStatus(db, scope, p.type, r.row, status as string);
         await reindex(ctx, db, row.meeting_id);
+        if (Object.keys(r.diff).length || (status && status !== row.status)) {
+          const data = { meetingId: row.meeting_id ?? null, status: status ?? row.status };
+          if (p.type === 'action') await hook(ctx, db, 'action.updated', { actionId: id, ...data });
+          else if (p.type === 'commitment') await hook(ctx, db, 'commitment.updated', { commitmentId: id, ...data });
+        }
         return itemDto(db, scope, p.type, await loadItem(db, scope, p.type, id));
       });
     });
@@ -394,6 +419,7 @@ export default async function ledgerRoutes(app: FastifyInstance, deps: Deps) {
       const scope = scopeOf(ctx);
       const row = await acceptItem(db, scope, type, id, { edits, confirmInferred: raw.confirmInferred });
       await reindex(ctx, db, row.meeting_id);
+      await announceAccepted(ctx, db, type, row);
       return { type, item: await itemDto(db, scope, type, row) };
     });
   });
@@ -452,9 +478,11 @@ export default async function ledgerRoutes(app: FastifyInstance, deps: Deps) {
     const b = body(req, z.object({ resolution: z.enum(['change', 'not_change', 'dismiss']) }).strict());
     return ctx.tx(async (db) => {
       const scope = scopeOf(ctx);
-      await resolveContradiction(db, scope, id, b.resolution);
+      const status = await resolveContradiction(db, scope, id, b.resolution);
       const [c] = await listContradictions(db, scope, { status: 'all', ids: [id] });
       if (c) await reindex(ctx, db, c.existingDecision.meetingId, c.newDecision.meetingId);
+      if (c && status === 'confirmed_change')
+        await announceSupersede(ctx, db, { id: c.existingDecision.id }, { id: c.newDecision.id, meeting_id: c.newDecision.meetingId });
       return c;
     });
   });

@@ -1,6 +1,7 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { createTestEnv, type TestEnv } from './helpers';
 import { createMeeting, extract, ledger, transcript, type Owner } from './ledger-helpers';
+import { dnsResolver } from '../src/modules/connectors/netguard';
 
 let env: TestEnv;
 let o: Owner;
@@ -416,6 +417,60 @@ describe('ledger: AI extraction (local-rules), review, decisions, actions, commi
     expect(c.body).toMatchObject({ openQuestions: 1, actions: 1, actionsWithoutOwner: 1, actionsWithoutDue: 1, decisionCount: 0 });
     expect(c.body.topicsWithoutDecision).toContain('リリース計画');
     expect(JSON.stringify(c.body)).not.toMatch(/rank|score|personality|emotion/i);
+  });
+
+  it('抽出ジョブキーは音声パイプラインと共通（ai:<transcriptId>）で二重実行しない／メモのみはメモ版ごと', async () => {
+    const m = await createMeeting(o.client, ws, { title: 'Job key' });
+    const t = await transcript(env, o.orgId, m.id, [{ speaker: 'Speaker 1', text: '公開日は10月にします。' }]);
+    // what modules/audio does after writing a transcript
+    const pj = await env.tenantTx(o.orgId, (db) =>
+      env.deps.jobs.enqueue(db, { orgId: o.orgId, type: 'ai.extract', key: `ai:${t.transcriptId}`, payload: { meetingId: m.id, transcriptId: t.transcriptId } }),
+    );
+    await env.worker.drain();
+    const r = await o.client.post(`${W()}/meetings/${m.id}/extract`, {});
+    expect(r.body).toMatchObject({ jobId: pj.id, created: false, status: 'succeeded' });
+    const rr = await o.client.post(`${W()}/meetings/${m.id}/extract`, { rerun: true });
+    expect(rr.body).toMatchObject({ jobId: pj.id, status: 'queued' });
+    await env.worker.drain();
+    expect((await ledger(o.client, ws, m.id)).decisions).toHaveLength(1);
+
+    const n = await createMeeting(o.client, ws, { title: 'Notes key' });
+    await o.client.put(`${W()}/meetings/${n.id}/notes`, { body: '公開日は10月にします', baseVersion: 0 });
+    const j1 = await o.client.post(`${W()}/meetings/${n.id}/extract`, {});
+    expect(j1.body.created).toBe(true);
+    await env.worker.drain();
+    expect((await o.client.post(`${W()}/meetings/${n.id}/extract`, {})).body).toMatchObject({ jobId: j1.body.jobId, created: false });
+    await o.client.put(`${W()}/meetings/${n.id}/notes`, { body: '公開日は10月にします\n見積もりを作成してください', baseVersion: 1 });
+    const j2 = await o.client.post(`${W()}/meetings/${n.id}/extract`, {});
+    expect(j2.body.created).toBe(true);
+    expect(j2.body.jobId).not.toBe(j1.body.jobId);
+    await env.worker.drain();
+    const l = await ledger(o.client, ws, n.id);
+    expect(l.decisions).toHaveLength(1);
+    expect(l.actions).toHaveLength(1);
+  });
+
+  it('Webhookは人が確定・変更したときだけ、idのみで発行される（AI候補では発行しない）', async () => {
+    // deterministic DNS for the connectors SSRF guard (no real resolver / network)
+    const original = dnsResolver.lookup;
+    dnsResolver.lookup = async () => ['93.184.216.34'];
+    const wh = await o.client.post(`${W()}/webhooks`, { url: 'https://hooks.example.com/ledger', events: ['decision.confirmed', 'decision.changed', 'action.created'] });
+    dnsResolver.lookup = original;
+    expect(wh.status).toBe(200);
+    const deliveries = () =>
+      env.tenantTx(o.orgId, async (db) => (await db.query('SELECT event, payload::text AS payload FROM webhook_deliveries WHERE workspace_id=$1 ORDER BY created_at', [ws])).rows);
+    const m = await createMeeting(o.client, ws, { title: 'Webhook' });
+    await transcript(env, o.orgId, m.id, [{ speaker: 'Speaker 1', text: '価格は月額3万円で合意しました。' }]);
+    await extract(env, o.client, ws, m.id);
+    expect(await deliveries()).toHaveLength(0);
+    const d = (await ledger(o.client, ws, m.id)).decisions[0];
+    await o.client.post(`${W()}/review/decision/${d.id}/accept`, {});
+    const after = await deliveries();
+    expect(after.map((x: any) => x.event)).toEqual(['decision.confirmed']);
+    expect(after[0].payload).toContain(d.id);
+    expect(after[0].payload).not.toContain('3万円');
+    await o.client.post(`${W()}/decisions/${d.id}/supersede`, { text: '価格は月額4万円にする' });
+    expect((await deliveries()).map((x: any) => x.event)).toEqual(['decision.confirmed', 'decision.changed', 'decision.confirmed']);
   });
 
   it('ログに会議本文を出さない', () => {

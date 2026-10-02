@@ -204,9 +204,11 @@ describe('MCP endpoint /mcp (Streamable HTTP, stateless, bearer API token)', () 
 
   it.skipIf(!ROUTES.brief)('get_meeting_brief uses the brief endpoint (followup module)', async () => {
     const m = await owner.post(`/api/w/${ws}/meetings`, { title: 'Brief target' });
+    await owner.put(`/api/w/${ws}/meetings/${m.body.id}/participants`, { participants: [{ name: 'Guest', email: 'guest@example.com' }] });
     const r = await callTool(env, ownerToken, 'get_meeting_brief', { meeting_id: m.body.id });
     expect(r.isError).toBe(false);
     expect(r.data.brief).toBeTruthy();
+    expect(JSON.stringify(r.data)).not.toContain('guest@example.com'); // minimal output: no participant emails
   });
 
   it.skipIf(!ROUTES.decisions)('get_current_decisions returns current decisions, ACL-filtered (ledger module)', async () => {

@@ -5,7 +5,8 @@ import type { Pool } from './pool';
 
 function migrationsDir(): string {
   const here = dirname(fileURLToPath(import.meta.url));
-  for (const c of [join(here, 'migrations'), join(here, 'db', 'migrations'), join(here, '..', 'src', 'db', 'migrations')]) {
+  // src/db (tsx) | dist (bundled server) | dist/cli (bundled CLI) | fallback to sources
+  for (const c of [join(here, 'migrations'), join(here, '..', 'migrations'), join(here, 'db', 'migrations'), join(here, '..', 'src', 'db', 'migrations')]) {
     if (existsSync(c)) return c;
   }
   throw new Error('migrations directory not found');

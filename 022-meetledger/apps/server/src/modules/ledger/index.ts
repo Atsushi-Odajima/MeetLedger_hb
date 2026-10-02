@@ -23,7 +23,7 @@ export {
 export { runExtraction, prepareExtraction, persistExtraction, detectContradictions } from './extract';
 export { validateExtraction } from './validate';
 export { contradictionReason, valueSet, valuePart } from './contradictions';
-export { extractJobKey, COACH_DISCLAIMER_JA, COACH_DISCLAIMER_EN } from './meetingRoutes';
+export { extractJobKey, notesVersionHash, COACH_DISCLAIMER_JA, COACH_DISCLAIMER_EN } from './meetingRoutes';
 
 const mod: ModuleDef = {
   name: 'ledger',

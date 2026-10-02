@@ -25,6 +25,8 @@ const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
 /** Columns that state "this record IS that user" — never re-pointed at the importer. */
 const IDENTITY_LINK_COLUMNS = new Set(['people.user_id', 'participants.user_id', 'actions.assignee_user_id', 'commitments.promised_by_user_id', 'commitments.promised_to_user_id']);
 
+const MEDIA_KINDS = ['original_audio', 'original_video', 'normalized_audio', 'transcript_file', 'attachment'];
+
 /** Tables whose content must be empty in the target workspace. */
 const CONTENT_TABLES = ['meetings', 'people', 'projects', 'series', 'templates', 'decisions', 'actions', 'commitments', 'open_questions'];
 
@@ -170,7 +172,7 @@ export async function importWorkspace(db: Db, ctx: WsCtx, doc: WorkspaceExportDo
           if (c.generated) continue;
           let v = src[col] as unknown;
           if (col === 'org_id') v = ctx.orgId;
-          else if (col === 'workspace_id' && (v != null || !c.nullable)) v = ctx.workspaceId;
+          else if (col === 'workspace_id') v = ctx.workspaceId; // every imported row belongs to the target workspace
           else if (c.udt === 'uuid' && v != null) {
             if (typeof v !== 'string' || !UUID_RE.test(v)) {
               skip = true;
@@ -197,6 +199,10 @@ export async function importWorkspace(db: Db, ctx: WsCtx, doc: WorkspaceExportDo
           continue;
         }
         if (t === 'media_assets') {
+          if (!MEDIA_KINDS.includes(String(row.kind))) {
+            skipped[t] = (skipped[t] ?? 0) + 1;
+            continue;
+          }
           const media = mediaById.get(String(src.id));
           const newId = String(row.id);
           row.storage_key = mediaKey(ctx.orgId, String(row.meeting_id), String(row.kind), newId);

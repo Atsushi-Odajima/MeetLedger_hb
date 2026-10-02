@@ -9,7 +9,7 @@ AIの出力は一切信用しません。**すべて Candidate として保存�
 ## 1. 処理の流れ（ジョブ `ai.extract` `{meetingId, transcriptId?}`）
 
 1. `POST /api/w/:ws/meetings/:id/extract {rerun?}`（member以上）または音声パイプライン（`audio.process` 成功後）がジョブを登録します。
-   ジョブキーは `ai.extract:<meetingId>:<transcriptId|notes>`。同じキーは重複実行されません（`rerun:true` で再実行）。
+   ジョブキーは音声パイプラインと共通の `ai:<transcriptId>`（Transcript が無いメモのみの Meeting は `ai:notes:<meetingId>:<メモ版ハッシュ>`）。同じキーは重複実行されません（処理直後に手動で extract しても既存ジョブが返る。`rerun:true` で同じキーのジョブを再実行）。
 2. **準備（テナントTx）**: Meeting・Workspace設定を読み、`decideAi()` でポリシー判定します。
    - **AI OFF（Confidential含む）なら Provider は一切呼びません**（ローカルルールも呼ばない）。Meeting は候補が残っていれば `needs_review`、なければ `ready` にします。
    - 現在の Transcript（`is_current`）のセグメントから `ExtractionInput` を作ります。Transcript が無い場合は Meeting メモの各行を疑似セグメント（`note:<noteId>:<行番号>`）にします（この場合の根拠は quote のみで、タイムスタンプはありません）。
@@ -20,6 +20,7 @@ AIの出力は一切信用しません。**すべて Candidate として保存�
    - 未レビューの AI 候補（人が編集していないもの）を置き換え、確認済み・却下済み・人が編集した候補とは**文面/引用が同じものを作り直しません**（再実行しても重複しない）。
    - 要約は `summaries` に新しい版として保存（同じ Transcript・同じ内容なら版を増やさない）。
    - 新しい決定候補と既存の Confirmed/有効な決定を比較し、矛盾候補を作ります（[DECISION_LEDGER.md](DECISION_LEDGER.md)）。
+   - 人が確定・変更した時点（AI 候補の作成時ではない）で、connectors モジュールの Webhook に id のみのイベント（`decision.confirmed` / `decision.changed` / `action.created` / `action.updated` / `commitment.updated`）を発行します。
    - Meeting を `needs_review` にし、`index.meeting` を登録、監査ログ `ai.extracted`（件数のみ）を記録します。
 6. Provider エラーはジョブの再試行に任せます。**別のクラウド Provider へフォールバックすることはありません**（設定ミス・キー未設定・入力過大のときだけ、外部送信のない `local-rules` に切り替えます）。
 

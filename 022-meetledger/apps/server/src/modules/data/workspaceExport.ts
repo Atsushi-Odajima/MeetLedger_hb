@@ -266,6 +266,26 @@ export async function writeWorkspaceExport(deps: Deps, db: Db, p: { orgId: strin
   return { counts, omitted, users: users.length, mediaFiles, size: w.size, sha256, excludedMeetings: hidden };
 }
 
+/**
+ * Tenant-scoped (RLS active, app.org_id set) READ ONLY transaction at REPEATABLE READ, so the id pass and the row pass
+ * of the export see one consistent snapshot.
+ */
+async function withTenantSnapshot<T>(deps: Deps, orgId: string, fn: (db: Db) => Promise<T>): Promise<T> {
+  const db = await deps.pool.connect();
+  try {
+    await db.query('BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY');
+    await db.query("SELECT set_config('app.org_id', $1, true), set_config('app.system', '', true)", [orgId]);
+    const out = await fn(db);
+    await db.query('COMMIT');
+    return out;
+  } catch (e) {
+    await db.query('ROLLBACK').catch(() => undefined);
+    throw e;
+  } finally {
+    db.release();
+  }
+}
+
 /** Job handler for `export.full`. */
 export async function runExportJob(deps: Deps, job: JobRow) {
   const p = job.payload as ExportJobPayload;
@@ -273,7 +293,7 @@ export async function runExportJob(deps: Deps, job: JobRow) {
   await mkdir(deps.config.TMP_DIR, { recursive: true });
   const tmp = join(deps.config.TMP_DIR, `export-${job.id}.json`);
   try {
-    const r = await tenantTx(deps, job.org_id, async (db) => {
+    const r = await withTenantSnapshot(deps, job.org_id, async (db) => {
       await assertStillAdmin(db, job.org_id!, p.workspaceId, p.userId);
       return writeWorkspaceExport(deps, db, { orgId: job.org_id!, workspaceId: p.workspaceId, userId: p.userId, includeMedia: !!p.includeMedia, filePath: tmp });
     });

@@ -34,6 +34,10 @@ const mod: ModuleDef = {
       { onerror: (e) => deps.log.warn({ err: safeErrorMessage(e) }, 'mcp request error'), maxRequestBodySize: 1_000_000 },
     );
 
+    app.addHook('onClose', async () => {
+      await handler.close();
+    });
+
     // Invalid tokens are rejected by the global auth hook (401) — add the RFC 6750 challenge for MCP clients.
     app.addHook('onSend', async (req, reply, payload) => {
       if (reply.statusCode === 401 && req.url.startsWith('/mcp')) reply.header('www-authenticate', WWW_AUTH);

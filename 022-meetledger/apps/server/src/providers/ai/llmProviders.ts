@@ -154,11 +154,10 @@ export class OllamaProvider extends JsonLlmProvider {
     } catch {
       /* keep */
     }
-    // Ollama is an operator-hosted LLM reached over HTTP. GuardedHttp only lets content-bearing calls through for
-    // non-local decisions, so the call is declared as a network transfer to OLLAMA_URL (the guard still re-checks AI OFF /
-    // confidential in the DB and records the call in external_calls). See docs/AI_EXTRACTION.md.
-    const viaHttp: AiCallCtx = { ...call, decision: { ...call.decision, isLocal: false, reason: `${call.decision.reason} / Ollama HTTP (${host})` } };
-    const res = await aiFetch(viaHttp, 'ollama', `${base}/api/chat`, {
+    // Ollama is an operator-hosted (on-premise) LLM. The local decision is passed as-is: GuardedHttp only lets it reach
+    // loopback or the configured OLLAMA_URL host and still re-checks AI OFF / confidential in the DB. See docs/AI_EXTRACTION.md.
+    void host;
+    const res = await aiFetch(call, 'ollama', `${base}/api/chat`, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({

@@ -1,5 +1,6 @@
 // Meeting-scoped ledger endpoints: extract (enqueue), summary, ledger, ask (single meeting), coach (facts only).
 import type { FastifyInstance } from 'fastify';
+import { createHash } from 'node:crypto';
 import { z } from 'zod';
 import type { AskResponseDto, CitationDto } from '@meetledger/shared';
 import type { Deps, WsCtx } from '../../context';
@@ -23,9 +24,19 @@ export const COACH_DISCLAIMER_JA =
 export const COACH_DISCLAIMER_EN =
   'These are factual metrics computed from the record (transcript and ledger). They do not assess or infer anyone’s ability, personality or emotions, and do not rank people.';
 
-/** Extraction job key: one job per meeting & transcript (notes-only meetings use "notes"). */
-export function extractJobKey(meetingId: string, transcriptId: string | null) {
-  return `ai.extract:${meetingId}:${transcriptId ?? 'notes'}`;
+/**
+ * Extraction job idempotency key — shared with the audio pipeline, which enqueues `ai:${transcriptId}` after writing a
+ * transcript (a manual extract right after processing returns that job instead of running twice).
+ * Notes-only meetings: `ai:notes:${meetingId}:${notesVersionHash}` (a new notes version gets a new job).
+ */
+export function extractJobKey(meetingId: string, transcriptId: string | null, notesVersionHash = '0') {
+  return transcriptId ? `ai:${transcriptId}` : `ai:notes:${meetingId}:${notesVersionHash}`;
+}
+
+/** Stable hash over (note id, version) of every author's notes for the meeting. */
+export async function notesVersionHash(db: any, meetingId: string): Promise<string> {
+  const r = await rows<{ id: string; version: number }>(db, 'SELECT id, version FROM meeting_notes WHERE meeting_id=$1 ORDER BY id', [meetingId]);
+  return createHash('sha256').update(r.map((x) => `${x.id}:${x.version}`).join('|')).digest('hex').slice(0, 16);
 }
 
 async function meetingAiDecision(db: any, ctx: WsCtx, m: any): Promise<PolicyDecision> {
@@ -44,7 +55,7 @@ export default async function meetingLedgerRoutes(app: FastifyInstance, deps: De
       const decision = await meetingAiDecision(db, ctx, m);
       if (!decision.allowed) throw policyDenied(decision.reason);
       const t = await one<{ id: string }>(db, 'SELECT id FROM transcripts WHERE meeting_id=$1 AND is_current ORDER BY version DESC LIMIT 1', [id]);
-      const key = extractJobKey(id, t?.id ?? null);
+      const key = extractJobKey(id, t?.id ?? null, t ? undefined : await notesVersionHash(db, id));
       const payload = { meetingId: id, transcriptId: t?.id ?? null };
       let job = b.rerun ? await deps.jobs.rerun(db, key) : null;
       if (!job) job = await deps.jobs.enqueue(db, { orgId: ctx.orgId, type: 'ai.extract', key, payload });
