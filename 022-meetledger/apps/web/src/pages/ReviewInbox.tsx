@@ -19,6 +19,8 @@ interface LooseItem {
   assigneePersonId?: string | null;
   assigneeUserId?: string | null;
   assigneeText?: string | null;
+  assigneeInferred?: boolean;
+  dueInferred?: boolean;
   dueDate?: string | null;
   dueText?: string | null;
   promisedByPersonId?: string | null;
