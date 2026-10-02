@@ -2671,3 +2671,11 @@ a.result-title:hover {
 .license-item .item-title {
   flex-wrap: wrap;
 }
+.stack-sm {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.stack-sm p {
+  margin: 0;
+}

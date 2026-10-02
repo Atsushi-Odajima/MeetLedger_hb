@@ -261,6 +261,37 @@ function Webhooks() {
 
 type WriteKind = 'slack_webhook' | 'slack_bot' | 'hubspot' | 'webhook' | 'gmail';
 
+/** Gmail drafts: a per-user connector (OAuth with the member's own Google account), so every member may connect. */
+function GmailConnect({ available }: { available: boolean }) {
+  const { t } = useI18n();
+  const toast = useToast();
+  const { a, can } = useWs();
+  const [busy, setBusy] = useState(false);
+  const connectGmail = async () => {
+    setBusy(true);
+    try {
+      const r = await api.get<{ authorizeUrl: string }>(a('/connectors/gmail/start'));
+      const u = new URL(r.authorizeUrl);
+      if (u.protocol !== 'https:') throw new Error('Invalid authorize URL');
+      window.location.assign(u.toString());
+    } catch (err) {
+      toast.error(err);
+      setBusy(false);
+    }
+  };
+  return (
+    <div className="stack">
+      <p className="field-hint">{t('connectors.gmailHint')}</p>
+      <div>
+        <Button type="button" icon="mail" onClick={connectGmail} loading={busy} disabled={!available || !can('member')}>
+          {t('connectors.gmailConnect')}
+        </Button>
+      </div>
+      {!available && <p className="field-hint">{t('connectors.notConfigured')}</p>}
+    </div>
+  );
+}
+
 /** Admin-only registration of shared write connectors. Credentials are write-only: sent once, stored encrypted, never shown again. */
 function WriteConnectorForm({ onCreated, gmailAvailable }: { onCreated(): void; gmailAvailable: boolean }) {
   const { t } = useI18n();
@@ -303,18 +334,6 @@ function WriteConnectorForm({ onCreated, gmailAvailable }: { onCreated(): void; 
       setBusy(false);
     }
   };
-  const connectGmail = async () => {
-    setBusy(true);
-    try {
-      const r = await api.get<{ authorizeUrl: string }>(a('/connectors/gmail/start'));
-      const u = new URL(r.authorizeUrl);
-      if (u.protocol !== 'https:') throw new Error('Invalid authorize URL');
-      window.location.assign(u.toString());
-    } catch (err) {
-      toast.error(err);
-      setBusy(false);
-    }
-  };
   const secretLabel: Record<Exclude<WriteKind, 'gmail'>, MsgKey> = {
     slack_webhook: 'connectors.slackWebhookUrl',
     slack_bot: 'connectors.slackBotToken',
@@ -345,15 +364,7 @@ function WriteConnectorForm({ onCreated, gmailAvailable }: { onCreated(): void; 
           {kind !== 'gmail' && <TextField label={t('connectors.displayName')} value={name} onChange={(e) => setName(e.target.value)} maxLength={100} />}
         </div>
         {kind === 'gmail' ? (
-          <div className="stack">
-            <p className="field-hint">{t('connectors.gmailHint')}</p>
-            <div>
-              <Button type="button" icon="mail" onClick={connectGmail} loading={busy} disabled={!gmailAvailable}>
-                {t('connectors.gmailConnect')}
-              </Button>
-            </div>
-            {!gmailAvailable && <p className="field-hint">{t('connectors.notConfigured')}</p>}
-          </div>
+          <GmailConnect available={gmailAvailable} />
         ) : (
           <>
             <TextField
@@ -483,7 +494,7 @@ export function ConnectorsSettings() {
                           {t('connectors.sync')}
                         </Button>
                       )}
-                      {admin && (
+                      {(admin || (c.owned && !(c as { shared?: boolean }).shared)) && (
                         <Button size="sm" variant="ghost" onClick={() => remove(c)}>
                           {t('connectors.disconnect')}
                         </Button>
@@ -511,7 +522,16 @@ export function ConnectorsSettings() {
         {(available.google_calendar === false || available.microsoft_calendar === false) && <p className="field-hint">{t('connectors.notConfigured')}</p>}
       </Card>
       <IcsCard onPreview={setPreview} />
-      {admin && <WriteConnectorForm onCreated={state.reload} gmailAvailable={available.gmail !== false} />}
+      {admin ? (
+        <WriteConnectorForm onCreated={state.reload} gmailAvailable={available.gmail !== false} />
+      ) : (
+        can('member') && (
+          <Card title={t('connectors.gmailDraft')} id="gmail-connect">
+            <GmailConnect available={available.gmail !== false} />
+            <p className="field-hint">{t('connectors.sharedAdminOnly')}</p>
+          </Card>
+        )
+      )}
       <Webhooks />
       <EventPreview preview={preview} onClose={() => setPreview(null)} onImported={state.reload} />
     </div>

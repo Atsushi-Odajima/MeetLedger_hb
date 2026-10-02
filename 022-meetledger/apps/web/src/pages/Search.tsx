@@ -7,6 +7,7 @@ import { useI18n } from '../i18n';
 import { useWs } from '../state/workspace';
 import { listOf, qs } from '../lib/api';
 import { useApi } from '../lib/hooks';
+import { FILTER_FIELD_ID, TruncatedNotice } from '../components/SearchScope';
 import type { ProjectDto, SearchHit } from '../lib/types';
 
 /** Server snippets mark matches with [[…]]; otherwise highlight the query terms client-side (never HTML). */
@@ -65,6 +66,7 @@ export function SearchPage() {
     setParams(next);
   };
   const hits = listOf<SearchHit>(state.data, 'hits', 'results');
+  const truncInfo = (state.data ?? {}) as { truncated?: boolean; searchedFrom?: string | null; hint?: string | null };
   const startOf = (h: SearchHit) => (typeof h.citation?.startMs === 'number' ? h.citation.startMs : typeof h.startMs === 'number' ? h.startMs : null);
   const linkFor = (h: SearchHit): string | null => {
     const ts = startOf(h);
@@ -103,15 +105,17 @@ export function SearchPage() {
             ))}
           </fieldset>
           <div className="filters">
-            <TextField label={t('search.from')} type="date" value={from} onChange={(e) => setFrom(e.target.value)} />
+            <TextField id={FILTER_FIELD_ID.period} label={t('search.from')} type="date" value={from} onChange={(e) => setFrom(e.target.value)} />
             <TextField label={t('search.to')} type="date" value={to} onChange={(e) => setTo(e.target.value)} />
             <SelectField
+              id={FILTER_FIELD_ID.project}
               label={t('meeting.project')}
               value={projectId}
               onChange={(e) => setProjectId(e.target.value)}
               options={[{ value: '', label: t('common.all') }, ...listOf<ProjectDto>(projects.data).map((x) => ({ value: x.id, label: x.name }))]}
             />
             <SelectField
+              id={FILTER_FIELD_ID.person}
               label={t('nav.people')}
               value={personId}
               onChange={(e) => setPersonId(e.target.value)}
@@ -129,6 +133,7 @@ export function SearchPage() {
       ) : (
         <>
           <CachedNotice at={state.cachedAt} />
+          <TruncatedNotice {...truncInfo} />
           <p className="muted" aria-live="polite">
             {t('search.resultsN', { n: hits.length })}
           </p>
