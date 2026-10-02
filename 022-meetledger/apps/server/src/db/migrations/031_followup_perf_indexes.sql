@@ -6,7 +6,7 @@
 -- supersession: "current decision" anti-join and Recent Changes (old → new) lookups
 CREATE INDEX IF NOT EXISTS decisions_supersedes ON decisions (supersedes_decision_id) WHERE supersedes_decision_id IS NOT NULL;
 -- Recent Changes windows (dashboard 7d / brief 30d / memory 90d): superseded decisions by time of change
-CREATE INDEX IF NOT EXISTS decisions_superseded_recent ON decisions (workspace_id, updated_at DESC) WHERE review_state = 'confirmed' AND status = 'superseded';
+CREATE INDEX IF NOT EXISTS decisions_superseded_recent ON decisions (workspace_id, updated_at DESC, id DESC) WHERE review_state = 'confirmed' AND status = 'superseded';
 CREATE INDEX IF NOT EXISTS decisions_superseded_series ON decisions (series_id, updated_at DESC) WHERE review_state = 'confirmed' AND status = 'superseded';
 CREATE INDEX IF NOT EXISTS decisions_superseded_project ON decisions (project_id, updated_at DESC) WHERE review_state = 'confirmed' AND status = 'superseded';
 -- person-linked branches (brief / timeline)

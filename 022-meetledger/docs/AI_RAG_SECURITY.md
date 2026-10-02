@@ -210,14 +210,14 @@ DBA が判断する事項のため、マイグレーションでは行わない�
 **計測**（`scripts/perf` の合成データ: 50,000 Meeting / 1,000万セグメント / 160万 search_docs、in-process、各10回）:
 | ケース | 変更前 p50 | 変更後 p50 / p95 |
 |---|---|---|
-| search 価格（頻出） | 10.3 s | 84 / 102 ms |
-| search ProofFlow | 10.3 s | 81 / 103 ms |
-| search 公開日 11月（AND+フレーズ） | >15 s（タイムアウト） | 84 / 102 ms |
-| search 研修の日程（フレーズ） | >15 s（タイムアウト） | 89 / 111 ms |
-| search 価格 + personId | 7.6 s | 42 / 51 ms |
-| search 価格 + projectId | 0.19 s | 88 / 125 ms |
-| search 一致なしの語 | 7.4 s | 347 / 353 ms（`truncated: true`） |
-| ask 価格について何を決めた？（local） | 3.1 s | 73 / 95 ms |
+| search 価格（頻出） | 10.3 s | 85 / 94 ms |
+| search ProofFlow | 10.3 s | 80 / 89 ms |
+| search 公開日 11月（AND+フレーズ） | >15 s（タイムアウト） | 86 / 90 ms |
+| search 研修の日程（フレーズ） | >15 s（タイムアウト） | 87 / 93 ms |
+| search 価格 + personId | 7.6 s | 41 / 62 ms |
+| search 価格 + projectId | 0.19 s | 86 / 110 ms |
+| search 一致なしの語 | 7.4 s | 347 / 350 ms（`truncated: true`） |
+| ask 価格について何を決めた？（local） | 3.1 s | 69 / 75 ms |
 
 合成データは1 Meeting のセグメントがヒープ上で分散している（1行=1ページ）ため、Meeting単位で連続して挿入される実データでは
 1 Meetingあたりの読み取りが少なく、同じ時間予算でより多くのMeetingを走査できる。

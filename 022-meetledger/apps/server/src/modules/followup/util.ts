@@ -328,7 +328,9 @@ export async function loadActions(
  */
 function dueOrder(a: string, order: ActionOrder | undefined, indexOrder?: boolean): string {
   const desc = order === 'due_desc';
-  if (indexOrder) return desc ? `${a}.due_date DESC NULLS LAST, ${a}.id DESC` : `${a}.due_date ASC NULLS LAST, ${a}.id ASC`;
+  // index order = (…, due_date, id) scanned forward / backward. Backward means NULLS FIRST: use due_desc+indexOrder only
+  // where due_date IS NOT NULL is implied (overdue lists).
+  if (indexOrder) return desc ? `${a}.due_date DESC, ${a}.id DESC` : `${a}.due_date ASC, ${a}.id ASC`;
   return desc ? `coalesce(${a}.due_date, '-infinity'::date) DESC, ${a}.id DESC` : `coalesce(${a}.due_date, 'infinity'::date) ASC, ${a}.id ASC`;
 }
 

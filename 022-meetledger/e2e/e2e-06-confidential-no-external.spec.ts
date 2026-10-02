@@ -32,7 +32,8 @@ test('confidential meeting: zero external requests; cloud meeting: requests obse
   // ---- confidential meeting created in the UI
   await page.goto(`/w/${ws.wsId}/meetings/new`);
   await page.getByLabel('タイトル').fill('人事面談（機密）');
-  await page.getByRole('checkbox', { name: /機密（Confidential）プリセット/ }).check();
+  await page.getByRole('switch', { name: /機密（Confidential）プリセット/ }).click();
+  await expect(page.getByRole('switch', { name: /機密（Confidential）プリセット/ })).toHaveAttribute('aria-checked', 'true');
   await page.getByRole('button', { name: '作成して記録を始める' }).click();
   await expect(page).toHaveURL(/\/meetings\/[0-9a-f-]{36}\/capture/);
   const meetingId = /meetings\/([0-9a-f-]{36})/.exec(page.url())![1];
