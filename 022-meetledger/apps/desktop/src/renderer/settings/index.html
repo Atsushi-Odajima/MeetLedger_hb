@@ -1,0 +1,92 @@
+<!doctype html>
+<html lang="ja">
+  <head>
+    <meta charset="utf-8" />
+    <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self'; base-uri 'none'; form-action 'none'; object-src 'none'" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>MeetLedger Desktop 設定</title>
+    <link rel="stylesheet" href="../common/common.css" />
+    <script type="module" src="./settings.js"></script>
+  </head>
+  <body>
+    <main class="page">
+      <header class="page-head">
+        <h1>MeetLedger Desktop 設定</h1>
+        <p class="muted">接続先の MeetLedger サーバーと、録音・端末内文字起こしの既定値を設定します。</p>
+      </header>
+
+      <div id="load-error" class="notice error" hidden role="alert"></div>
+
+      <section class="card">
+        <h2>サーバー</h2>
+        <label class="field">MeetLedger サーバーの URL
+          <input id="server-url" type="url" inputmode="url" autocomplete="url" spellcheck="false" placeholder="https://meetledger.example.co.jp" />
+        </label>
+        <p class="fineprint">https:// のみ（localhost は http:// も可）。このウィンドウにはこのサーバーの画面だけが表示され、他サイトへのリンクは既定のブラウザで開きます。</p>
+        <div class="row">
+          <button id="test" type="button" class="secondary">接続テスト</button>
+          <button id="save-server" type="button">保存して開く</button>
+        </div>
+        <p id="server-result" class="status" role="status" aria-live="polite"></p>
+      </section>
+
+      <section class="card">
+        <h2>録音・文字起こしの既定値</h2>
+        <label class="radio"><input type="radio" name="mode" value="device" /> この端末で文字起こし（音声は送信しない）</label>
+        <label class="radio"><input type="radio" name="mode" value="server" /> 音声をサーバーへアップロード</label>
+        <label class="check"><input id="upload-default" type="checkbox" /> 端末内文字起こしでも「音声もアップロード」を既定でオンにする</label>
+        <div class="row">
+          <label class="field inline">言語
+            <select id="language">
+              <option value="ja">日本語</option>
+              <option value="en">英語</option>
+              <option value="auto">自動</option>
+            </select>
+          </label>
+          <label class="field inline">スレッド数
+            <input id="threads" type="number" min="1" max="16" step="1" />
+          </label>
+          <label class="check"><input id="diarization" type="checkbox" /> 話者分離（端末内）</label>
+        </div>
+        <label class="field">文字起こしモデル
+          <select id="model"><option value="">自動（ダウンロード済みの最初のモデル）</option></select>
+        </label>
+        <div class="row"><button id="save-defaults" type="button">既定値を保存</button></div>
+        <p id="defaults-result" class="status" role="status" aria-live="polite"></p>
+      </section>
+
+      <section class="card">
+        <h2>文字起こしモデル（端末内）</h2>
+        <p id="local-cap" class="muted">確認中…</p>
+        <div class="table-wrap">
+          <table id="models">
+            <thead><tr><th>モデル</th><th>言語</th><th>サイズ</th><th>ライセンス</th><th>状態</th><th></th></tr></thead>
+            <tbody></tbody>
+          </table>
+        </div>
+        <p class="fineprint">ダウンロードは明示的な操作でのみ行われ、サイズとライセンスを確認するダイアログが表示されます。会議データは送信されません。</p>
+        <h3>クレジット表記</h3>
+        <ul id="credits" class="credits"></ul>
+      </section>
+
+      <section class="card">
+        <h2>この端末のデータ</h2>
+        <p id="recordings" class="muted"></p>
+        <div class="row"><button id="clear-recordings" type="button" class="secondary">録音ファイルをすべて削除</button></div>
+      </section>
+
+      <section class="card">
+        <h2>システム音声（詳細）</h2>
+        <p id="system-cap" class="muted"></p>
+        <div id="mac-options" hidden>
+          <label class="check"><input id="mac-picker" type="checkbox" /> macOS 標準の画面共有ピッカーを使う（実験的・Electron Issue #52738 の回避策候補）</label>
+          <label class="check"><input id="mac-legacy" type="checkbox" /> 旧方式のシステム音声取得を使う（Core Audio Tap を無効化・Electron 44 のみ）</label>
+          <p class="fineprint">変更はアプリの再起動後に反映されます。通常は両方オフのままにしてください。</p>
+          <div class="row"><button id="save-mac" type="button" class="secondary">保存</button></div>
+        </div>
+      </section>
+
+      <footer class="fineprint" id="about"></footer>
+    </main>
+  </body>
+</html>

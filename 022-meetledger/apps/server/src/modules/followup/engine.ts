@@ -137,7 +137,9 @@ export async function generateNotifications(db: Db, orgId: string, users: Map<st
   const add = async (userId: string, n: NewNotification) => {
     if (await insertNotification(db, orgId, userId, n, now)) created++;
   };
-  const wsMember = (wsCol: string, userCol: string) => `EXISTS (SELECT 1 FROM workspace_members wm WHERE wm.workspace_id = ${wsCol} AND wm.user_id = ${userCol})`;
+  // Recipient must (still) be a member of a live workspace.
+  const wsMember = (wsCol: string, userCol: string) =>
+    `EXISTS (SELECT 1 FROM workspace_members wm JOIN workspaces w ON w.id = wm.workspace_id AND w.deleted_at IS NULL WHERE wm.workspace_id = ${wsCol} AND wm.user_id = ${userCol})`;
 
   // 1) needs_review (T+0) → meeting owner
   const review = await rows(

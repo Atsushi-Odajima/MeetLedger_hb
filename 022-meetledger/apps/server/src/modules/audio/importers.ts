@@ -14,6 +14,8 @@ export function splitSpeakerPrefix(line: string): { speaker: string | null; text
   const m = NAME_PREFIX.exec(line.trim());
   if (!m) return { speaker: null, text: line.trim() };
   const name = m[1].trim();
+  // "10:00" style times inside a sentence are not speaker prefixes.
+  if (/\d$/.test(name) && /^\d/.test(m[2])) return { speaker: null, text: line.trim() };
   if (/^\d+$/.test(name) || /\/\//.test(line.slice(0, name.length + 3)) || /[。、.!?！？]/.test(name) || name.split(/\s+/).length > 4) return { speaker: null, text: line.trim() };
   return { speaker: name, text: m[2].trim() };
 }
@@ -81,6 +83,7 @@ const TXT_TIME = /^\[?((?:\d+:)?\d{1,2}:\d{2}(?:[.,]\d{1,3})?)\]?\s+(.*)$/;
 /** Plain text: one utterance per line, optional leading "[hh:mm:ss]" and "Name:" prefix. */
 export function parseTxt(content: string): InSegment[] {
   const out: InSegment[] = [];
+  let lastStart = 0;
   for (const raw of content.replace(/^﻿/, '').replace(/\r\n?/g, '\n').split('\n')) {
     let line = raw.trim();
     if (!line) continue;
@@ -94,7 +97,10 @@ export function parseTxt(content: string): InSegment[] {
       }
     }
     const sp = splitSpeakerPrefix(line);
-    out.push({ startMs: start ?? 0, endMs: start ?? 0, text: sp.text, speaker: sp.speaker, flags: start === null ? ['no_timestamp'] : [] });
+    // Untimed lines keep their position after the previous timed line (flagged, never given invented times).
+    const at = start ?? lastStart;
+    if (start !== null) lastStart = start;
+    out.push({ startMs: at, endMs: at, text: sp.text, speaker: sp.speaker, flags: start === null ? ['no_timestamp'] : [] });
   }
   // Timed lines end where the next one starts (last one: +5 s; marked as estimated).
   for (let i = 0; i < out.length; i++) {

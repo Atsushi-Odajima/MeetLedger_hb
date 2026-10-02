@@ -1,0 +1,123 @@
+<!doctype html>
+<html lang="ja">
+  <head>
+    <meta charset="utf-8" />
+    <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:; media-src 'self' blob: mediastream:; connect-src 'self'; worker-src 'self'; base-uri 'none'; form-action 'none'; object-src 'none'" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>MeetLedger 録音</title>
+    <link rel="stylesheet" href="../common/common.css" />
+    <script type="module" src="./recorder.js"></script>
+  </head>
+  <body>
+    <div id="rec-banner" class="rec-banner" hidden role="status" aria-live="polite">
+      <span class="rec-dot" aria-hidden="true"></span>
+      <strong id="rec-label">録音中</strong>
+      <span id="rec-elapsed" class="mono">00:00:00</span>
+      <span id="rec-sources" class="rec-sources"></span>
+    </div>
+
+    <main class="page">
+      <header class="page-head">
+        <h1>デスクトップ録音</h1>
+        <p class="muted">マイク（左チャンネル＝あなた）とシステム音声（右チャンネル＝相手）を分けて記録します。録音中はこのウィンドウが常に表示されます。</p>
+      </header>
+
+      <section class="card" id="step-meeting">
+        <h2><span class="step">1</span>会議を選択</h2>
+        <div id="login-hint" class="notice warn" hidden></div>
+        <label class="field">ワークスペース
+          <select id="ws"></select>
+        </label>
+        <label class="field">会議
+          <select id="meeting"></select>
+        </label>
+        <div class="row">
+          <button id="reload" type="button" class="secondary">再読み込み</button>
+          <input id="new-title" type="text" maxlength="300" placeholder="新しい会議のタイトル" />
+          <button id="create" type="button" class="secondary">新規作成</button>
+        </div>
+        <dl id="meeting-info" class="kv"></dl>
+      </section>
+
+      <section class="card" id="step-consent">
+        <h2><span class="step">2</span>参加者への通知・同意</h2>
+        <p id="consent-state" class="muted"></p>
+        <div id="consent-form">
+          <label class="check"><input id="consent-check" type="checkbox" /> 参加者全員に、この会議を録音・文字起こしすることを伝えました</label>
+          <div class="row">
+            <label class="field inline">方法
+              <select id="consent-method">
+                <option value="verbal">口頭で伝えた</option>
+                <option value="chat_message">チャットで伝えた</option>
+                <option value="calendar_note">招待状に記載した</option>
+                <option value="email">メールで伝えた</option>
+                <option value="in_app">アプリ内で通知した</option>
+                <option value="other">その他</option>
+              </select>
+            </label>
+            <label class="field inline">状態
+              <select id="consent-kind">
+                <option value="notified">通知した</option>
+                <option value="confirmed">同意を得た</option>
+              </select>
+            </label>
+            <button id="consent-save" type="button">記録する</button>
+          </div>
+        </div>
+        <p class="fineprint">MeetLedger は通知・同意の記録を支援しますが、法令遵守を保証するものではありません。拒否した参加者がいる場合は録音しないでください。</p>
+      </section>
+
+      <section class="card" id="step-options">
+        <h2><span class="step">3</span>処理方法</h2>
+        <label class="radio"><input type="radio" name="mode" value="device" checked /> この端末で文字起こし（音声は送信しない／テキストのみ送信）</label>
+        <label class="check indent"><input id="upload-audio" type="checkbox" /> 音声もアップロード</label>
+        <label class="radio"><input type="radio" name="mode" value="server" /> 音声をサーバーへアップロード（サーバー側で文字起こし）</label>
+        <label class="check"><input id="use-system" type="checkbox" checked /> システム音声（相手の声）も録音する</label>
+        <ul class="caps">
+          <li id="cap-system"></li>
+          <li id="cap-local"></li>
+        </ul>
+        <div class="row">
+          <button id="prepare" type="button">録音を準備（会議を開始）</button>
+        </div>
+      </section>
+
+      <section class="card" id="step-record">
+        <h2><span class="step">4</span>録音</h2>
+        <div class="meters">
+          <div class="meter"><span>マイク（あなた）</span><meter id="lvl-mic" min="0" max="1" value="0"></meter></div>
+          <div class="meter"><span>システム音声（相手）</span><meter id="lvl-sys" min="0" max="1" value="0"></meter></div>
+        </div>
+        <div class="row">
+          <button id="start" type="button" class="danger" disabled>● 録音開始</button>
+          <button id="stop" type="button" disabled>■ 停止</button>
+          <button id="cancel-prep" type="button" class="secondary" disabled>準備を取り消す</button>
+        </div>
+      </section>
+
+      <section class="card" id="step-result">
+        <h2><span class="step">5</span>結果の送信</h2>
+        <p id="result-info" class="muted">録音停止後に表示されます。</p>
+        <div class="row">
+          <button id="transcribe" type="button" disabled>この端末で文字起こし</button>
+          <button id="submit" type="button" disabled>文字起こし結果を送信</button>
+          <button id="upload" type="button" disabled>音声をアップロード</button>
+          <button id="finish" type="button" class="secondary" disabled>完了（端末のファイルを削除）</button>
+        </div>
+        <div class="table-wrap">
+          <table id="segments" hidden>
+            <thead><tr><th>時刻</th><th>話者</th><th>テキスト</th></tr></thead>
+            <tbody></tbody>
+          </table>
+        </div>
+      </section>
+
+      <section class="card">
+        <h2>状態</h2>
+        <p id="status" class="status" role="status" aria-live="polite">準備中…</p>
+        <ul id="warnings" class="warnings"></ul>
+        <p class="row"><button id="open-settings" type="button" class="link">設定を開く</button></p>
+      </section>
+    </main>
+  </body>
+</html>

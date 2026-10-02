@@ -230,7 +230,7 @@ export function connectorRoutes(app: FastifyInstance, deps: Deps) {
       z
         .object({
           url: z.string().trim().max(2000).optional(),
-          content: z.string().max(settings.icsMaxBytes + 1).optional(),
+          content: z.string().max(20_000_000).optional(),
           name: z.string().trim().min(1).max(100).optional(),
           from: zIso.optional(),
           to: zIso.optional(),
@@ -277,7 +277,8 @@ export function connectorRoutes(app: FastifyInstance, deps: Deps) {
     return { authorizeUrl: r.authorizeUrl, scopes: r.scopes, redirectUri: `${deps.config.APP_ORIGIN.replace(/\/$/, '')}/api/connectors/oauth/callback` };
   });
 
-  app.get('/api/connectors/oauth/callback', async (req, reply) => {
+  // logLevel 'warn': the request URL carries the one-time authorization code — keep it out of the info request logs.
+  app.get('/api/connectors/oauth/callback', { logLevel: 'warn' }, async (req, reply) => {
     const q = query(req, z.object({ code: z.string().max(4000).optional(), state: z.string().max(200).optional(), error: z.string().max(100).optional() }));
     const auth = (req as any).auth;
     if (!q.state) return oauthRedirect(deps, reply, { error: 'invalid_state' });
@@ -342,7 +343,7 @@ export function connectorRoutes(app: FastifyInstance, deps: Deps) {
     const { workspaceId, id } = parse(wsIdParams, req.params);
     const ctx = await workspaceCtx(deps, req, workspaceId, 'member');
     const settings = connectorSettings(deps);
-    const b = body(req, z.object({ from: zIso.optional(), to: zIso.optional(), content: z.string().max(settings.icsMaxBytes + 1).optional() }));
+    const b = body(req, z.object({ from: zIso.optional(), to: zIso.optional(), content: z.string().max(20_000_000).optional() }));
     const range = rangeFrom(deps, b);
     const r = await ctx.tx((db) => loadConnector(db, ctx, id, 'owner'));
     if (!(CALENDAR_PROVIDERS as readonly string[]).includes(r.provider)) throw badRequest('Not a calendar connector');

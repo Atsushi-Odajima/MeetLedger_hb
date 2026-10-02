@@ -70,6 +70,7 @@ export interface ChunkSpec {
 
 const uniq = <T>(a: T[]) => [...new Set(a)];
 const segLine = (s: SegLite) => `${s.speaker}: ${s.text}`;
+const values = (...xs: unknown[]) => xs.filter((x) => typeof x === 'string' && x.trim()).join('\n');
 
 /** Splits text into pieces of at most `max` characters (code point safe), preferring sentence ends. */
 export function splitText(text: string, max = WINDOW_CHARS): string[] {
@@ -163,6 +164,8 @@ const sha = (s: string) => createHash('sha256').update(s).digest('hex').slice(0,
 // ------------------------------------------------------------------ search_docs
 
 interface DocRow {
+  /** Text used for the FTS vector (values only, no display labels such as 「担当:」). Defaults to title + body. */
+  indexText?: string;
   entityType: string;
   entityId: string;
   meetingId: string | null;
@@ -181,7 +184,7 @@ async function upsertDoc(db: Db, orgId: string, workspaceId: string, d: DocRow) 
      ON CONFLICT (entity_type, entity_id) DO UPDATE SET
        meeting_id=EXCLUDED.meeting_id, workspace_id=EXCLUDED.workspace_id, title=EXCLUDED.title, body=EXCLUDED.body, tsv=EXCLUDED.tsv,
        occurred_at=EXCLUDED.occurred_at, person_ids=EXCLUDED.person_ids, meta=EXCLUDED.meta, updated_at=now()`,
-    [orgId, workspaceId, d.meetingId, d.entityType, d.entityId, d.title, body, indexTsv(`${d.title ?? ''}\n${body}`), d.occurredAt ?? null, uniq(d.personIds), d.meta],
+    [orgId, workspaceId, d.meetingId, d.entityType, d.entityId, d.title, body, indexTsv((d.indexText ?? `${d.title ?? ''}\n${body}`).slice(0, MAX_DOC_BODY)), d.occurredAt ?? null, uniq(d.personIds), d.meta],
   );
 }
 
@@ -272,13 +275,15 @@ export async function indexMeeting(deps: Deps, orgId: string, meetingId: string,
       ]
         .filter(Boolean)
         .join('\n'),
+      indexText: values(m.title, ...participants.map((p) => p.pname ?? p.display_name), m.project_name, m.client_name, m.series_title),
       personIds: participantIds,
       meta: { meetingType: m.meeting_type, status: m.status },
     });
 
     const summary = await one<{ id: string; sections: unknown }>(db, 'SELECT id, sections FROM summaries WHERE meeting_id=$1 AND is_current ORDER BY version DESC LIMIT 1', [meetingId]);
     const summaryText = summary ? flattenSections(summary.sections) : '';
-    if (summary && summaryText) docs.push({ ...base, entityType: 'summary', entityId: summary.id, title: 'AI要約', body: summaryText, personIds: [], meta: { aiGenerated: true } });
+    if (summary && summaryText)
+      docs.push({ ...base, entityType: 'summary', entityId: summary.id, title: 'AI要約', body: summaryText, indexText: summaryText, personIds: [], meta: { aiGenerated: true } });
 
     const decisions = await rows<any>(
       db,
@@ -294,6 +299,7 @@ export async function indexMeeting(deps: Deps, orgId: string, meetingId: string,
         entityId: d.id,
         title: d.topic ?? null,
         body: [d.text, d.reason ? `理由: ${d.reason}` : '', d.owner_name ? `担当: ${d.owner_name}` : ''].filter(Boolean).join('\n'),
+        indexText: values(d.topic, d.text, d.reason, d.owner_name),
         personIds: [d.owner_person_id, ...(d.participant_person_ids ?? [])].filter(Boolean),
         meta: { reviewState: d.review_state, status: d.status, startMs: d.source_start_ms, endMs: d.source_end_ms },
       });
@@ -313,6 +319,7 @@ export async function indexMeeting(deps: Deps, orgId: string, meetingId: string,
         entityId: a.id,
         title: null,
         body: [a.description, who ? `担当: ${who}` : '', a.due_date || a.due_text ? `期限: ${a.due_date ?? a.due_text}` : ''].filter(Boolean).join('\n'),
+        indexText: values(a.description, who, a.due_text),
         personIds: [a.assignee_person_id].filter(Boolean),
         meta: { status: a.status, dueDate: a.due_date, startMs: a.source_start_ms, endMs: a.source_end_ms },
       });
@@ -334,6 +341,7 @@ export async function indexMeeting(deps: Deps, orgId: string, meetingId: string,
         entityId: c.id,
         title: null,
         body: [c.description, by ? `約束した人: ${by}` : '', to ? `相手: ${to}` : '', c.due_date || c.due_text ? `期限: ${c.due_date ?? c.due_text}` : ''].filter(Boolean).join('\n'),
+        indexText: values(c.description, by, to, c.due_text),
         personIds: [c.promised_by_person_id, c.promised_to_person_id].filter(Boolean),
         meta: { status: c.status, dueDate: c.due_date, startMs: c.source_start_ms, endMs: c.source_end_ms },
       });
@@ -352,12 +360,13 @@ export async function indexMeeting(deps: Deps, orgId: string, meetingId: string,
         entityId: q.id,
         title: null,
         body: [q.question, q.answer_text ? `回答: ${q.answer_text}` : '', q.owner_name ? `担当: ${q.owner_name}` : ''].filter(Boolean).join('\n'),
+        indexText: values(q.question, q.answer_text, q.owner_name),
         personIds: [q.owner_person_id].filter(Boolean),
         meta: { status: q.status, startMs: q.source_start_ms, endMs: q.source_end_ms },
       });
     }
     const notes = await rows<any>(db, "SELECT id, body, author_user_id FROM meeting_notes WHERE meeting_id=$1 AND body <> '' ORDER BY updated_at", [meetingId]);
-    for (const n of notes) docs.push({ ...base, entityType: 'note', entityId: n.id, title: 'メモ', body: n.body, personIds: [], meta: { authorUserId: n.author_user_id } });
+    for (const n of notes) docs.push({ ...base, entityType: 'note', entityId: n.id, title: 'メモ', body: n.body, indexText: n.body, personIds: [], meta: { authorUserId: n.author_user_id } });
 
     for (const d of docs) await upsertDoc(db, orgId, m.workspace_id, d);
     // People created implicitly as participants are not index.person-enqueued by core: create their docs if missing.
@@ -561,6 +570,7 @@ export async function upsertPersonDoc(db: Db, orgId: string, personId: string): 
     ]
       .filter(Boolean)
       .join('\n'),
+    indexText: values(p.name, p.organization, p.role_title, p.email, ...(p.tags ?? []), p.notes, ...notes.map((n) => n.body)),
     occurredAt: p.updated_at,
     personIds: [p.id],
     meta: { organization: p.organization ?? null },

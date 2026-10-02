@@ -17,7 +17,7 @@ import { LocalEncryptedStorage } from './storage/localEncrypted';
 import type { ObjectStorage } from './storage/types';
 import { createProviders, type ProviderRegistry } from './providers/registry';
 import { GuardedHttp, type ExternalHttp } from './privacy/externalHttp';
-import { OutboxEmail, type EmailAdapter } from './modules/notifications/email';
+import { createEmailAdapter, type EmailAdapter } from './modules/notifications/email';
 import { JobQueue, Worker } from './jobs/queue';
 import { registerModules, registerJobHandlers } from './modules';
 
@@ -58,7 +58,7 @@ export async function buildApp(opts: BuildOptions): Promise<BuiltApp> {
     storage: opts.storage ?? new LocalEncryptedStorage(config.STORAGE_DIR, config.MASTER_KEY),
     providers: opts.providers ?? createProviders(config),
     http: opts.http ?? new GuardedHttp(pool),
-    email: opts.email ?? new OutboxEmail(),
+    email: opts.email ?? createEmailAdapter(config),
     jobs: new JobQueue(),
     log: app.log,
   };

@@ -141,7 +141,9 @@ export default async function audioRoutes(app: FastifyInstance, deps: Deps) {
         }
         const choice = chooseTranscriptionProvider(deps, m, await workspaceSettings(db, workspaceId));
         const job = await enqueueAudioProcess(deps, db, ctx.orgId, id, assetId, choice.providerId);
-        if (choice.providerId) await db.query(`UPDATE meetings SET status='processing', updated_at=now() WHERE id=$1 AND status <> 'archived'`, [id]);
+        // Only a job that will actually run moves the meeting to 'processing' (a re-sent file maps to the finished job).
+        if (choice.providerId && (job.status === 'queued' || job.status === 'running'))
+          await db.query(`UPDATE meetings SET status='processing', updated_at=now() WHERE id=$1 AND status <> 'archived'`, [id]);
         await audit(db, {
           orgId: ctx.orgId,
           workspaceId,
@@ -234,7 +236,7 @@ export default async function audioRoutes(app: FastifyInstance, deps: Deps) {
       const choice = chooseTranscriptionProvider(deps, m, await workspaceSettings(db, workspaceId));
       if (!choice.providerId) throw conflict(choice.decision.reason, { code: 'transcription_not_allowed' });
       const job = await enqueueAudioProcess(deps, db, ctx.orgId, id, a.id, choice.providerId, b.rerun);
-      if (job.status === 'queued') await db.query(`UPDATE meetings SET status='processing', updated_at=now() WHERE id=$1 AND status <> 'archived'`, [id]);
+      if (job.status === 'queued' || job.status === 'running') await db.query(`UPDATE meetings SET status='processing', updated_at=now() WHERE id=$1 AND status <> 'archived'`, [id]);
       await audit(db, { orgId: ctx.orgId, workspaceId, userId: ctx.userId, action: 'audio.process_requested', entityType: 'meeting', entityId: id, meta: { assetId: a.id, rerun: b.rerun, provider: choice.providerId } });
       return { jobId: job.id, status: job.status, created: job.created, assetId: a.id, provider: choice.providerId };
     });

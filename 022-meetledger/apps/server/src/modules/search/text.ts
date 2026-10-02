@@ -11,7 +11,7 @@ const CJK = '\\p{Script=Han}\\p{Script=Hiragana}\\p{Script=Katakana}ー々〆ヶ
 const WORD = '[\\p{L}\\p{N}_]';
 const BOUNDARY_RE = new RegExp(`(?<=[${CJK}])(?=${WORD})(?![${CJK}])|(?<=${WORD})(?<![${CJK}])(?=[${CJK}])`, 'gu');
 const HAS_CJK_RE = new RegExp(`[${CJK}]`, 'u');
-const KANJI_KATA_RE = /[\p{Script=Han}\p{Script=Katakana}ー々ヶ]+/gu;
+const KANJI_OR_KATA_RE = /[\p{Script=Han}々ヶ]+|[\p{Script=Katakana}ー]+/gu;
 
 export function splitScripts(text: string): string {
   return text.replace(BOUNDARY_RE, ' ');
@@ -97,7 +97,7 @@ export function extractKeywords(text: string): string[] {
       if (Array.from(piece).length >= 2) push(piece);
       continue;
     }
-    for (const run of piece.match(KANJI_KATA_RE) ?? []) {
+    for (const run of piece.match(KANJI_OR_KATA_RE) ?? []) {
       const chars = Array.from(run);
       if (chars.length < 2) continue;
       push(run);

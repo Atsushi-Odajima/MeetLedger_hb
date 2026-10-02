@@ -158,6 +158,8 @@ describe('search: GET /search', () => {
     const two = await search(bob.client, `q=${encodeURIComponent('価格')}&from=2026-09-01&to=2026-09-30&projectId=${ids.clientA}`);
     expect(two.body.items.length).toBeGreaterThan(0);
     expect(two.body.items.every((h: any) => h.meetingId === ids.m1)).toBe(true);
+    // display labels (担当: / 参加者:) are not indexed, only values
+    expect((await search(bob.client, `q=${encodeURIComponent('担当')}`)).body.items).toEqual([]);
     const none = await search(bob.client, `q=${encodeURIComponent('存在しない語句')}`);
     expect(none.body.items).toEqual([]);
     expect((await search(bob.client, 'q=x&types=bogus')).status).toBe(400);
