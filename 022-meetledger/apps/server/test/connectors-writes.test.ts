@@ -80,7 +80,9 @@ describe('external writes: preview + explicit approval, executed exactly once', 
 
     // concurrent approvals → exactly one external call
     const [a1, a2] = await Promise.all([member.client.post(`/api/w/${ws}/external-writes/${req.id}/approve`), member.client.post(`/api/w/${ws}/external-writes/${req.id}/approve`)]);
-    expect([a1.status, a2.status].sort()).toEqual([200, 409]);
+    // exactly one approval executes; the other gets 409 (in progress) or alreadyExecuted (finished first)
+    expect([a1, a2].filter((r) => r.status === 200 && r.body.executed === true)).toHaveLength(1);
+    expect([a1, a2].every((r) => r.status === 409 || (r.status === 200 && (r.body.executed || r.body.alreadyExecuted)))).toBe(true);
     expect(slackCalls()).toHaveLength(1);
     const sent = slackCalls()[0];
     expect(sent.kind).toBe('connector');

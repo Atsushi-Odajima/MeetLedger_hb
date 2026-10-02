@@ -206,8 +206,12 @@ export async function purgeTranscripts(deps: Deps, db: Db, orgId: string, worksp
   const ts = transcriptIds ?? (await rows<{ id: string }>(db, 'SELECT id FROM transcripts WHERE meeting_id=$1', [meetingId])).map((r) => r.id);
   const segIds = ts.length ? (await rows<{ id: string }>(db, 'SELECT id FROM transcript_segments WHERE transcript_id = ANY($1)', [ts])).map((r) => r.id) : [];
   const ids = [...ts, ...segIds];
-  const search = ids.length ? await db.query(`DELETE FROM search_docs WHERE workspace_id=$1 AND entity_id = ANY($2)`, [workspaceId, ids]) : { rowCount: 0 };
-  const ai = ids.length ? await db.query(`DELETE FROM ai_chunks WHERE workspace_id=$1 AND entity_id = ANY($2)`, [workspaceId, ids]) : { rowCount: 0 };
+  // Index rows keyed by transcript / segment ids; when every version goes, also any transcript-typed row of the meeting.
+  const all = transcriptIds === null;
+  const idxSql = (t: string) =>
+    `DELETE FROM ${t} WHERE workspace_id=$1 AND (entity_id = ANY($2::uuid[]) OR ($3::boolean AND meeting_id=$4 AND entity_type IN ('transcript','segment')))`;
+  const search = await db.query(idxSql('search_docs'), [workspaceId, ids, all, meetingId]);
+  const ai = await db.query(idxSql('ai_chunks'), [workspaceId, ids, all, meetingId]);
   let quotes = 0;
   for (const table of ['decisions', 'actions', 'commitments', 'open_questions']) {
     const r = await db.query(
