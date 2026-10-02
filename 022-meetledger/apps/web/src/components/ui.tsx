@@ -491,7 +491,24 @@ export function Dialog({
 }
 
 // ------------------------------------------------------------------ popover
-export function Popover({ label, icon, children, align = 'right', buttonClassName, buttonContent }: { label: string; icon?: IconName; children: (close: () => void) => ReactNode; align?: 'left' | 'right'; buttonClassName?: string; buttonContent?: ReactNode }) {
+export function Popover({
+  label,
+  icon,
+  children,
+  align = 'right',
+  buttonClassName,
+  buttonContent,
+  buttonLabel,
+}: {
+  label: string;
+  icon?: IconName;
+  children: (close: () => void) => ReactNode;
+  align?: 'left' | 'right';
+  buttonClassName?: string;
+  buttonContent?: ReactNode;
+  /** Accessible name of the trigger when its visible content is not descriptive. */
+  buttonLabel?: string;
+}) {
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
   const id = useId();
@@ -505,7 +522,16 @@ export function Popover({ label, icon, children, align = 'right', buttonClassNam
   }, [open]);
   return (
     <div className="popover-wrap" ref={ref} onKeyDown={(e) => e.key === 'Escape' && setOpen(false)}>
-      <button type="button" className={buttonClassName ?? 'icon-btn'} aria-expanded={open} aria-controls={id} aria-label={buttonContent ? undefined : label} title={label} onClick={() => setOpen((o) => !o)}>
+      <button
+        type="button"
+        className={buttonClassName ?? 'icon-btn'}
+        aria-expanded={open}
+        aria-haspopup="dialog"
+        aria-controls={id}
+        aria-label={buttonLabel ?? (buttonContent ? undefined : label)}
+        title={label}
+        onClick={() => setOpen((o) => !o)}
+      >
         {buttonContent ?? (icon ? <Icon name={icon} /> : label)}
       </button>
       {open && (

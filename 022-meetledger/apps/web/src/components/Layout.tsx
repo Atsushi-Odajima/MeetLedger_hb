@@ -94,6 +94,7 @@ export function WorkspaceSwitcher({ compact }: { compact?: boolean }) {
         label={t('ws.switch')}
         align="left"
         buttonClassName={`ws-switcher${compact ? ' ws-switcher-compact' : ''}`}
+        buttonLabel={`${t('ws.switch')}: ${ws?.name ?? current?.name ?? ''}`}
         buttonContent={
           <>
             <span className="ws-name">{ws?.name ?? current?.name ?? '…'}</span>
@@ -103,12 +104,12 @@ export function WorkspaceSwitcher({ compact }: { compact?: boolean }) {
         }
       >
         {(close) => (
-          <div className="menu" role="menu" aria-label={t('ws.switch')}>
+          <div className="menu">
             <p className="menu-heading">{t('ws.title')}</p>
             {me.workspaces.map((w) => (
               <Link
                 key={w.id}
-                role="menuitem"
+               
                 to={`/w/${w.id}`}
                 className={`menu-item${w.id === wsId ? ' menu-item-active' : ''}`}
                 aria-current={w.id === wsId ? 'true' : undefined}
@@ -124,7 +125,7 @@ export function WorkspaceSwitcher({ compact }: { compact?: boolean }) {
             ))}
             <div className="menu-sep" />
             {setup?.sampleAvailable !== false && !hasSample && (
-              <button type="button" role="menuitem" className="menu-item" onClick={() => createSample(close)} disabled={creating}>
+              <button type="button" className="menu-item" onClick={() => createSample(close)} disabled={creating}>
                 <Icon name="plus" size={16} /> {t('sample.create')}
               </button>
             )}
@@ -132,7 +133,7 @@ export function WorkspaceSwitcher({ compact }: { compact?: boolean }) {
               <button
                 key={o.id}
                 type="button"
-                role="menuitem"
+               
                 className="menu-item"
                 onClick={() => {
                   close();
@@ -278,19 +279,19 @@ function UserMenu() {
   const navigate = useNavigate();
   if (!me) return null;
   return (
-    <Popover label={t('user.menu')} buttonClassName="avatar-btn" buttonContent={<span className="avatar" aria-hidden="true">{me.user.name.slice(0, 1).toUpperCase()}</span>}>
+    <Popover label={t('user.menu')} buttonLabel={`${t('user.menu')}: ${me.user.name}`} buttonClassName="avatar-btn" buttonContent={<span className="avatar" aria-hidden="true">{me.user.name.slice(0, 1).toUpperCase()}</span>}>
       {(close) => (
-        <div className="menu" role="menu">
+        <div className="menu">
           <p className="menu-heading">
             {me.user.name}
             <span className="menu-item-sub">{me.user.email}</span>
           </p>
-          <Link role="menuitem" className="menu-item" to={p('/settings/account')} onClick={close}>
+          <Link className="menu-item" to={p('/settings/account')} onClick={close}>
             <Icon name="user" size={16} /> {t('settings.account')}
           </Link>
           <button
             type="button"
-            role="menuitem"
+           
             className="menu-item"
             onClick={async () => {
               close();

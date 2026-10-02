@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { FOLLOWUP_KINDS, findBuiltinTemplate, type FollowupKind } from '@meetledger/shared';
 import { AiBadge, Alert, Async, Badge, Button, Card, EmptyState, SelectField, TextArea, TextField } from '../../components/ui';
 import { useI18n, type MsgKey } from '../../i18n';
@@ -7,10 +7,60 @@ import { useWs } from '../../state/workspace';
 import { useToast } from '../../state/toast';
 import { api, ApiError, listOf } from '../../lib/api';
 import { copyText, useApi } from '../../lib/hooks';
-import type { FollowupListItem } from '../../lib/types';
+import type { ConnectorDto, FollowupListItem } from '../../lib/types';
 import { useMeeting } from './context';
 
 type Channel = 'email' | 'slack' | 'chat' | 'other';
+
+/** Requests an external send (Slack / webhook / CRM). Nothing is sent until approved on the approval page. */
+function ExternalSend({ d }: { d: FollowupListItem }) {
+  const { t, tm } = useI18n();
+  const toast = useToast();
+  const { a, p } = useWs();
+  const navigate = useNavigate();
+  const { meeting } = useMeeting();
+  const connectors = useApi<unknown>(a('/connectors'));
+  const writable = listOf<ConnectorDto>(connectors.data, 'connectors').filter((c) => c.kind === 'write' && c.status === 'active');
+  const [connectorId, setConnectorId] = useState('');
+  const [to, setTo] = useState('');
+  const [busy, setBusy] = useState(false);
+  if (!writable.length) return <p className="field-hint">{t('followup.noDestinations')} <Link to={p('/settings/connectors')}>{t('settings.connectors')}</Link></p>;
+  const selected = writable.find((c) => c.id === connectorId) ?? writable[0];
+  const request = async (acknowledgeConfidential = false) => {
+    setBusy(true);
+    try {
+      await api.post(a('/external-writes'), {
+        connectorId: selected.id,
+        followupId: d.id,
+        meetingId: meeting.id,
+        to: to.split(/[,\s]+/).map((x) => x.trim()).filter(Boolean).slice(0, 20),
+        acknowledgeConfidential,
+      });
+      toast.success(t('followup.sendRequested'));
+      navigate(p('/settings/approvals'));
+    } catch (e) {
+      if (e instanceof ApiError && e.status === 409 && (e.details as { code?: string } | undefined)?.code === 'confidential_ack_required') {
+        if (window.confirm(t('followup.confidentialConfirm'))) await request(true);
+      } else toast.error(e);
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <div className="inline-form">
+      <SelectField
+        label={t('followup.destination')}
+        value={selected.id}
+        onChange={(e) => setConnectorId(e.target.value)}
+        options={writable.map((c) => ({ value: c.id, label: `${c.displayName ?? c.name ?? c.provider} (${tm(`connectorProvider.${c.provider}`, c.provider)})` }))}
+      />
+      {selected.provider !== 'slack' && selected.provider !== 'webhook' && <TextField label={t('followup.recipients')} value={to} onChange={(e) => setTo(e.target.value)} placeholder="name@example.com" />}
+      <Button icon="send" onClick={() => request()} loading={busy}>
+        {t('followup.requestSend')}
+      </Button>
+    </div>
+  );
+}
 
 function Draft({ d, onChange }: { d: FollowupListItem; onChange(): void }) {
   const { t, fmt } = useI18n();
@@ -123,10 +173,13 @@ function Draft({ d, onChange }: { d: FollowupListItem; onChange(): void }) {
             </Button>
           </div>
         )}
-        {d.status === 'approved' && (
-          <p className="field-hint">
-            {t('followup.externalNote')} <Link to={p('/settings/approvals')}>{t('settings.approvals')}</Link>
-          </p>
+        {d.status === 'approved' && meeting.canEdit && (
+          <>
+            <ExternalSend d={d} />
+            <p className="field-hint">
+              {t('followup.externalNote')} <Link to={p('/settings/approvals')}>{t('settings.approvals')}</Link>
+            </p>
+          </>
         )}
         {d.status === 'sent' && d.sentAt && <p className="field-hint">{t('followup.sentAt', { time: fmt.dateTime(d.sentAt) })}</p>}
       </div>

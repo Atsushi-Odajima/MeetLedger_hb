@@ -1,5 +1,6 @@
 import { useState, type FormEvent } from 'react';
-import { Alert, Async, Badge, Button, Card, Checkbox, Dialog, EmptyState, TextArea, TextField } from '../../components/ui';
+import { useSearchParams } from 'react-router-dom';
+import { Alert, Async, Badge, Button, Card, Checkbox, Dialog, EmptyState, SelectField, TextArea, TextField } from '../../components/ui';
 import { useI18n } from '../../i18n';
 import { useWs } from '../../state/workspace';
 import { useToast } from '../../state/toast';
@@ -75,13 +76,14 @@ function EventPreview({ preview, onClose, onImported }: { preview: PreviewState 
                 <Checkbox
                   label={
                     <>
-                      <strong>{ev.title}</strong> <span className="muted">{fmt.dateTime(ev.start ?? ev.startsAt ?? null)}</span>
-                      {ev.alreadyImported && <Badge>{t('connectors.alreadyImported')}</Badge>}
+                      <strong>{ev.title}</strong> <span className="muted">{ev.allDay ? fmt.date(ev.start ?? ev.startsAt ?? null) : fmt.dateTime(ev.start ?? ev.startsAt ?? null)}</span>
+                      {(ev.alreadyImported || ev.imported) && <Badge>{t('connectors.alreadyImported')}</Badge>}
+                      {ev.recurring && <Badge>{t('connectors.recurring')}</Badge>}
                     </>
                   }
                   hint={ev.attendees?.length ? t('connectors.attendees', { n: ev.attendees.length }) : undefined}
                   checked={selected.has(ev.id)}
-                  disabled={ev.alreadyImported}
+                  disabled={ev.alreadyImported || ev.imported}
                   onChange={() => toggle(ev.id)}
                 />
               </li>
@@ -143,25 +145,32 @@ function IcsCard({ onPreview }: { onPreview(p: PreviewState): void }) {
   );
 }
 
+const FALLBACK_EVENTS = ['meeting.created', 'meeting.ready', 'decision.confirmed', 'decision.changed', 'action.created', 'action.updated', 'commitment.updated', 'followup.approved', 'external_write.executed'];
+
 function Webhooks() {
   const { t, fmt } = useI18n();
   const toast = useToast();
   const { a, can } = useWs();
-  const state = useApi<unknown>(a('/webhooks'));
+  const admin = can('admin');
+  const state = useApi<unknown>(admin ? a('/webhooks') : null);
   const [url, setUrl] = useState('');
-  const [events, setEvents] = useState('meeting.processed,decision.confirmed,action.confirmed');
-  const [secret, setSecret] = useState<string | null>(null);
+  const [events, setEvents] = useState<string[]>(['*']);
+  const [secret, setSecret] = useState<{ value: string; header?: string } | null>(null);
+  const known = ((state.data as { events?: string[] } | undefined)?.events ?? FALLBACK_EVENTS).filter((e) => e !== 'ping');
+  if (!admin) return null;
+  const toggle = (ev: string, on: boolean) => {
+    if (ev === '*') return setEvents(on ? ['*'] : []);
+    setEvents((cur) => {
+      const base = cur.filter((x) => x !== '*');
+      return on ? [...base, ev] : base.filter((x) => x !== ev);
+    });
+  };
   const create = async (e: FormEvent) => {
     e.preventDefault();
     try {
-      const r = await api.post<WebhookDto & { secret?: string }>(a('/webhooks'), {
-        url: url.trim(),
-        events: events
-          .split(',')
-          .map((x) => x.trim())
-          .filter(Boolean),
-      });
-      setSecret(r.secret ?? null);
+      const r = await api.post<{ signingSecret?: string; secret?: string; signatureHeader?: string }>(a('/webhooks'), { url: url.trim(), events });
+      const value = r.signingSecret ?? r.secret;
+      setSecret(value ? { value, header: r.signatureHeader } : null);
       setUrl('');
       state.reload();
     } catch (err) {
@@ -177,12 +186,20 @@ function Webhooks() {
       toast.error(err);
     }
   };
+  const test = async (w: WebhookDto) => {
+    try {
+      await api.post(a(`/webhooks/${w.id}/test`));
+      toast.success(t('webhooks.testQueued'));
+    } catch (err) {
+      toast.error(err);
+    }
+  };
   return (
     <Card title={t('webhooks.title')}>
       <p className="field-hint">{t('webhooks.hint')}</p>
       <Async state={state}>
         {(d) => {
-          const items = listOf<WebhookDto>(d, 'webhooks');
+          const items = listOf<WebhookDto & { lastDelivery?: { status: string; httpStatus: string; at: string | null } | null }>(d, 'webhooks');
           return items.length ? (
             <ul className="items">
               {items.map((w) => (
@@ -191,13 +208,21 @@ function Webhooks() {
                     <code className="code-inline">{w.url}</code>
                     <span className="item-meta">
                       {(w.events ?? []).join(', ')} {w.createdAt && `· ${fmt.date(w.createdAt)}`}
+                      {w.lastDelivery && (
+                        <Badge tone={w.lastDelivery.status === 'delivered' ? 'success' : 'warn'}>
+                          {t('webhooks.lastDelivery', { status: w.lastDelivery.httpStatus })}
+                        </Badge>
+                      )}
                     </span>
                   </div>
-                  {can('admin') && (
+                  <div className="item-side button-row">
+                    <Button size="sm" onClick={() => test(w)}>
+                      {t('webhooks.test')}
+                    </Button>
                     <Button size="sm" variant="ghost" onClick={() => remove(w)}>
                       {t('common.delete')}
                     </Button>
-                  )}
+                  </div>
                 </li>
               ))}
             </ul>
@@ -209,22 +234,93 @@ function Webhooks() {
       {secret && (
         <Alert tone="success" title={t('webhooks.secretOnce')}>
           <div className="copy-row">
-            <code className="code-inline">{secret}</code>
-            <Button size="sm" icon="copy" onClick={() => copyText(secret).then((ok) => ok && toast.success(t('common.copied')))}>
+            <code className="code-inline">{secret.value}</code>
+            <Button size="sm" icon="copy" onClick={() => copyText(secret.value).then((ok) => ok && toast.success(t('common.copied')))}>
               {t('common.copy')}
             </Button>
           </div>
+          {secret.header && <p className="field-hint">{t('webhooks.signatureHeader', { header: secret.header })}</p>}
         </Alert>
       )}
-      {can('admin') && (
-        <form className="stack" onSubmit={create}>
-          <TextField label={t('webhooks.url')} type="url" value={url} onChange={(e) => setUrl(e.target.value)} required placeholder="https://example.com/hooks/meetledger" />
-          <TextField label={t('webhooks.events')} value={events} onChange={(e) => setEvents(e.target.value)} hint={t('webhooks.eventsHint')} />
-          <Button type="submit" disabled={!url.trim()}>
-            {t('webhooks.add')}
-          </Button>
-        </form>
-      )}
+      <form className="stack" onSubmit={create}>
+        <TextField label={t('webhooks.url')} type="url" value={url} onChange={(e) => setUrl(e.target.value)} required placeholder="https://example.com/hooks/meetledger" />
+        <fieldset className="check-row">
+          <legend className="field-label">{t('webhooks.events')}</legend>
+          <Checkbox label={t('webhooks.allEvents')} checked={events.includes('*')} onChange={(e) => toggle('*', e.target.checked)} />
+          {known.map((ev) => (
+            <Checkbox key={ev} label={<code className="code-inline">{ev}</code>} checked={events.includes('*') || events.includes(ev)} disabled={events.includes('*')} onChange={(e) => toggle(ev, e.target.checked)} />
+          ))}
+        </fieldset>
+        <Button type="submit" disabled={!url.trim() || !events.length}>
+          {t('webhooks.add')}
+        </Button>
+      </form>
+    </Card>
+  );
+}
+
+type WriteProvider = 'slack' | 'webhook' | 'hubspot';
+
+function WriteConnectorForm({ onCreated }: { onCreated(): void }) {
+  const { t } = useI18n();
+  const toast = useToast();
+  const { a } = useWs();
+  const [provider, setProvider] = useState<WriteProvider>('slack');
+  const [name, setName] = useState('');
+  const [secret, setSecret] = useState('');
+  const [busy, setBusy] = useState(false);
+  const submit = async (e: FormEvent) => {
+    e.preventDefault();
+    setBusy(true);
+    try {
+      const displayName = name.trim() || undefined;
+      const body =
+        provider === 'slack'
+          ? { provider, mode: 'incoming_webhook', webhookUrl: secret.trim(), displayName }
+          : provider === 'hubspot'
+            ? { provider, accessToken: secret.trim(), displayName }
+            : { provider, url: secret.trim(), displayName };
+      await api.post(a('/connectors'), body);
+      setSecret('');
+      setName('');
+      toast.success(t('connectors.writeCreated'));
+      onCreated();
+    } catch (err) {
+      toast.error(err);
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <Card title={t('connectors.writeTitle')}>
+      <form className="stack" onSubmit={submit}>
+        <p className="field-hint">{t('connectors.writeHint')}</p>
+        <div className="grid-2">
+          <SelectField
+            label={t('connectors.writeProvider')}
+            value={provider}
+            onChange={(e) => setProvider(e.target.value as WriteProvider)}
+            options={[
+              { value: 'slack', label: t('connectors.slackWebhook') },
+              { value: 'webhook', label: t('connectorProvider.webhook') },
+              { value: 'hubspot', label: t('connectorProvider.hubspot') },
+            ]}
+          />
+          <TextField label={t('connectors.displayName')} value={name} onChange={(e) => setName(e.target.value)} maxLength={100} />
+        </div>
+        <TextField
+          label={provider === 'slack' ? t('connectors.slackWebhookUrl') : provider === 'hubspot' ? t('connectors.hubspotToken') : t('webhooks.url')}
+          type={provider === 'hubspot' ? 'password' : 'url'}
+          value={secret}
+          onChange={(e) => setSecret(e.target.value)}
+          required
+          autoComplete="off"
+          hint={t('connectors.secretStored')}
+        />
+        <Button type="submit" loading={busy} disabled={!secret.trim()}>
+          {t('connectors.writeAdd')}
+        </Button>
+      </form>
     </Card>
   );
 }
@@ -233,7 +329,11 @@ export function ConnectorsSettings() {
   const { t, fmt, tm } = useI18n();
   const toast = useToast();
   const { a, can } = useWs();
+  const [params, setParams] = useSearchParams();
+  const oauthConnected = params.get('connected');
+  const oauthError = params.get('error');
   const state = useApi<unknown>(a('/connectors'));
+  const available = ((state.data as { available?: Record<string, boolean> } | undefined)?.available ?? {}) as Record<string, boolean>;
   const [preview, setPreview] = useState<PreviewState | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const admin = can('admin');
@@ -271,6 +371,21 @@ export function ConnectorsSettings() {
   return (
     <div className="stack">
       <Alert tone="info">{t('connectors.intro')}</Alert>
+      {oauthConnected && (
+        <Alert tone="success" title={t('connectors.oauthConnected', { provider: tm(`connectorProvider.${oauthConnected}`, oauthConnected) })}>
+          <Button size="sm" variant="ghost" onClick={() => setParams({})}>
+            {t('common.dismiss')}
+          </Button>
+        </Alert>
+      )}
+      {oauthError && (
+        <Alert tone="warn" title={t('connectors.oauthFailed')}>
+          <p>{tm(`oauthError.${oauthError}`, oauthError)}</p>
+          <Button size="sm" variant="ghost" onClick={() => setParams({})}>
+            {t('common.dismiss')}
+          </Button>
+        </Alert>
+      )}
       <Card title={t('connectors.connected')}>
         <Async state={state}>
           {(d) => {
@@ -285,6 +400,7 @@ export function ConnectorsSettings() {
                         <Badge>{tm(`connectorProvider.${c.provider}`, c.provider)}</Badge>
                         {c.status && <Badge tone={c.status === 'active' || c.status === 'connected' ? 'success' : 'neutral'}>{tm(`connectorStatus.${c.status}`, c.status)}</Badge>}
                         {c.lastSyncAt && <span>{t('connectors.lastSync', { time: fmt.dateTime(c.lastSyncAt) })}</span>}
+                        {c.lastError && <span className="text-danger">{c.lastError}</span>}
                       </span>
                     </div>
                     <div className="item-side button-row">
@@ -311,15 +427,17 @@ export function ConnectorsSettings() {
       <Card title={t('connectors.calendars')}>
         <p className="field-hint">{t('connectors.oauthHint')}</p>
         <div className="button-row">
-          <Button icon="calendar" onClick={() => connect('google_calendar')} loading={busy === 'google_calendar'} disabled={!admin}>
+          <Button icon="calendar" onClick={() => connect('google_calendar')} loading={busy === 'google_calendar'} disabled={!can('member') || available.google_calendar === false}>
             {t('connectors.google')}
           </Button>
-          <Button icon="calendar" onClick={() => connect('microsoft_calendar')} loading={busy === 'microsoft_calendar'} disabled={!admin}>
+          <Button icon="calendar" onClick={() => connect('microsoft_calendar')} loading={busy === 'microsoft_calendar'} disabled={!can('member') || available.microsoft_calendar === false}>
             {t('connectors.microsoft')}
           </Button>
         </div>
+        {(available.google_calendar === false || available.microsoft_calendar === false) && <p className="field-hint">{t('connectors.notConfigured')}</p>}
       </Card>
       <IcsCard onPreview={setPreview} />
+      {admin && <WriteConnectorForm onCreated={state.reload} />}
       <Webhooks />
       <EventPreview preview={preview} onClose={() => setPreview(null)} onImported={state.reload} />
     </div>

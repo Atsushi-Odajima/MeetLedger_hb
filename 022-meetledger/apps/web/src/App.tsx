@@ -69,6 +69,16 @@ function GoRedirect({ fixed }: { fixed?: string }) {
   return <Navigate to={`/w/${ws}${map[target ?? ''] ?? ''}`} replace />;
 }
 
+/** Server redirects (e.g. OAuth callback → /settings/connectors?connected=…) land outside a workspace: forward them. */
+function SettingsRedirect() {
+  const { me } = useSession();
+  const loc = useLocation();
+  if (!me) return <Navigate to={`/login?next=${encodeURIComponent(loc.pathname + loc.search)}`} replace />;
+  const ws = lastWorkspace(me.workspaces.map((w) => w.id)) ?? me.workspaces.find((w) => !w.isSample)?.id ?? me.workspaces[0]?.id;
+  if (!ws) return <Navigate to="/no-workspace" replace />;
+  return <Navigate to={`/w/${ws}${loc.pathname}${loc.search}`} replace />;
+}
+
 function RequireAuth({ children }: { children: ReactNode }) {
   const { me, setup } = useSession();
   const loc = useLocation();
@@ -154,6 +164,7 @@ export function App() {
         <Route path="/no-workspace" element={<RequireAuth><NoWorkspacePage /></RequireAuth>} />
         <Route path="/go/:target" element={<GoRedirect />} />
         <Route path="/notifications" element={<GoRedirect fixed="notifications" />} />
+        <Route path="/settings/*" element={<SettingsRedirect />} />
         <Route
           path="/w/:wsId/*"
           element={

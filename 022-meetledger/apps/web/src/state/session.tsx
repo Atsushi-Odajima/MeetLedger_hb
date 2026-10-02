@@ -2,7 +2,7 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useState, t
 import type { MeDto } from '@meetledger/shared';
 import { api, ApiError, NetworkError } from '../lib/api';
 import { useI18n, LANG_STORAGE_KEY } from '../i18n';
-import { replayOutbox, setOutboxUser } from '../lib/offline/outbox';
+import { clearOfflineViewData, replayOutbox, setOutboxUser } from '../lib/offline/outbox';
 import { clearServiceWorkerApiCache } from '../lib/sw';
 
 export interface SetupStatus {
@@ -83,6 +83,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     }
     api.setCsrf(null);
     clearServiceWorkerApiCache();
+    await clearOfflineViewData();
     applyMe(null);
   }, [applyMe]);
 

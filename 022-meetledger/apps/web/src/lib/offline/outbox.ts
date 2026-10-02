@@ -102,7 +102,13 @@ export function setOutboxUser(userId: string | null) {
   currentUserId = userId;
   notify();
 }
+export const getOutboxUser = () => currentUserId;
 const mine = (o: OutboxOp) => !o.userId || o.userId === currentUserId;
+
+/** Logout: drop cached server copies (viewing data). Unsynced edits stay (tagged with their user) and sync on next login. */
+export async function clearOfflineViewData(): Promise<void> {
+  await idb.clear('kv').catch(() => undefined);
+}
 
 // ---------------------------------------------------------------- queue API
 export async function listOps(): Promise<OutboxOp[]> {

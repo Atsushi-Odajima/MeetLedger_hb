@@ -1245,6 +1245,8 @@ mark {
   border-left: 3px solid transparent;
   border-radius: 0 8px 8px 0;
   margin: 0;
+  white-space: normal;
+  text-align: left;
 }
 .settings-layout .tab-active {
   border-left-color: var(--primary);
@@ -2499,6 +2501,7 @@ a.result-title:hover {
     border-left: 0;
     border-bottom: 3px solid transparent;
     border-radius: 8px 8px 0 0;
+    white-space: nowrap;
   }
   .settings-layout .tab-active {
     border-bottom-color: var(--primary);

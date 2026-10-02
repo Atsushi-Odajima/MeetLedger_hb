@@ -1,7 +1,7 @@
 // Web smoke test: first-run setup (or login) → create a meeting → write notes → reload → notes are still there.
 // Needs a running server with the built PWA (WEB_DIST_DIR) on E2E_BASE_URL (default http://localhost:8787).
 // On an already set-up database, provide the owner credentials with E2E_EMAIL / E2E_PASSWORD.
-import { expect, test, type Page } from '@playwright/test';
+import { expect, request as pwRequest, test, type Page } from '@playwright/test';
 
 const EMAIL = process.env.E2E_EMAIL ?? 'e2e-owner@example.com';
 const PASSWORD = process.env.E2E_PASSWORD ?? 'e2e-password-1234';
@@ -60,4 +60,47 @@ test('setup → create meeting → notes → reload keeps notes', async ({ page,
   // The meeting is listed
   await page.goto(`${wsPath}/meetings`);
   await expect(page.getByRole('link', { name: title })).toBeVisible();
+});
+
+test('offline notes are queued (未同期) and a newer server copy is never overwritten', async ({ page, context, baseURL }) => {
+  const status = await (await page.request.get('/api/setup/status')).json();
+  await signIn(page, !!status.needsSetup);
+  const wsPath = new URL(page.url()).pathname.match(/^\/w\/[0-9a-f-]{36}/)![0];
+  await page.goto(`${wsPath}/meetings/new`);
+  await page.getByLabel('タイトル').fill(`E2E オフライン ${Date.now()}`);
+  await page.getByRole('button', { name: '作成して記録を始める' }).click();
+  await expect(page).toHaveURL(/\/capture$/);
+  const meetingId = page.url().match(/meetings\/([0-9a-f-]{36})/)![1];
+  const editor = page.getByTestId('notes-editor');
+  await editor.fill('v1');
+  await expect(page.getByTestId('notes-status')).toContainText('保存済み');
+
+  // Offline: the edit is kept on this device and shown as unsynced.
+  await context.setOffline(true);
+  await editor.fill('v2 オフラインで追記');
+  await expect(page.getByTestId('notes-status')).toContainText('未同期');
+  await expect(page.locator('.sync-badge')).toContainText('未同期');
+
+  // Meanwhile another device saves a newer version.
+  const other = await pwRequest.newContext({ baseURL });
+  await other.post('/api/auth/login', { data: { email: EMAIL, password: PASSWORD }, headers: { origin: baseURL! } });
+  const me = await (await other.get('/api/me')).json();
+  const notesUrl = `/api${wsPath}/meetings/${meetingId}/notes`;
+  const cur = await (await other.get(notesUrl)).json();
+  const put = await other.put(notesUrl, { data: { body: 'v2 別の端末', baseVersion: cur.mine.version }, headers: { 'x-csrf-token': me.csrfToken, origin: baseURL! } });
+  expect(put.status()).toBe(200);
+
+  // Back online: the queue replays, detects the conflict and keeps the server copy untouched.
+  await context.setOffline(false);
+  await page.evaluate(() => window.dispatchEvent(new Event('online')));
+  await expect(page.getByText('ほかの端末でメモが更新されています')).toBeVisible();
+  expect((await (await other.get(notesUrl)).json()).mine.body).toBe('v2 別の端末');
+
+  // The user chooses to keep both.
+  await page.getByRole('button', { name: '両方を残して結合' }).click();
+  await expect(page.getByTestId('notes-status')).toContainText('保存済み');
+  const merged = (await (await other.get(notesUrl)).json()).mine.body as string;
+  expect(merged).toContain('v2 オフラインで追記');
+  expect(merged).toContain('v2 別の端末');
+  await other.dispose();
 });

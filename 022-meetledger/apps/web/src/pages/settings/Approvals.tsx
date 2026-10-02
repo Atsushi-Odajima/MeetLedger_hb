@@ -7,9 +7,46 @@ import { api, listOf } from '../../lib/api';
 import { useApi } from '../../lib/hooks';
 import type { ExternalWriteDto } from '../../lib/types';
 
+interface PreviewShape {
+  subject?: string | null;
+  text?: string;
+  payload?: unknown;
+  warnings?: string[];
+  connectorName?: string | null;
+}
+
 function Payload({ v }: { v: unknown }) {
+  const { t, tm } = useI18n();
   if (v === null || v === undefined) return null;
   if (typeof v === 'string') return <pre className="payload">{v}</pre>;
+  const p = v as PreviewShape;
+  if (typeof p.text === 'string' || p.subject) {
+    return (
+      <div className="stack">
+        {p.warnings && p.warnings.length > 0 && (
+          <Alert tone="warn">
+            <ul className="notice-list">
+              {p.warnings.map((w) => (
+                <li key={w}>{tm(`writeWarning.${w}`, w)}</li>
+              ))}
+            </ul>
+          </Alert>
+        )}
+        {p.subject && (
+          <p>
+            <strong>{t('followup.subject')}:</strong> {p.subject}
+          </p>
+        )}
+        <pre className="payload payload-text">{p.text}</pre>
+        {p.payload !== undefined && (
+          <details className="preview-details">
+            <summary>{t('approvals.rawPayload')}</summary>
+            <pre className="payload">{JSON.stringify(p.payload, null, 2)}</pre>
+          </details>
+        )}
+      </div>
+    );
+  }
   return <pre className="payload">{JSON.stringify(v, null, 2)}</pre>;
 }
 
@@ -55,9 +92,16 @@ export function ApprovalsSettings() {
               {items.map((w) => (
                 <Card
                   key={w.id}
-                  title={w.summary ?? `${tm(`connectorProvider.${w.provider ?? ''}`, w.provider ?? w.target ?? '')} · ${w.action ?? w.kind ?? ''}`}
+                  title={w.summary ?? `${(w.preview as PreviewShape | undefined)?.connectorName ?? tm(`connectorProvider.${w.provider ?? ''}`, w.provider ?? '')}${w.target ? ` → ${w.target}` : ''}`}
                   actions={<Badge tone={w.status === 'approved' || w.status === 'done' ? 'success' : w.status === 'rejected' ? 'neutral' : 'warn'}>{tm(`writeStatus.${w.status}`, w.status)}</Badge>}
-                  footer={w.createdAt ? <span className="muted">{fmt.dateTime(w.createdAt)}</span> : undefined}
+                  footer={
+                    w.createdAt ? (
+                      <span className="muted">
+                        {fmt.dateTime(w.createdAt)}
+                        {w.executedAt && ` · ${t('approvals.executedAt', { time: fmt.dateTime(w.executedAt) })}`}
+                      </span>
+                    ) : undefined
+                  }
                 >
                   <p className="small-title">{t('approvals.preview')}</p>
                   <Payload v={w.preview ?? w.payload} />

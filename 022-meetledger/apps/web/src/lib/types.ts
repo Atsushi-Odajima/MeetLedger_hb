@@ -253,6 +253,11 @@ export interface SearchHit {
 export interface ConnectorDto {
   id: string;
   provider: string;
+  kind?: 'calendar' | 'write';
+  owned?: boolean;
+  shared?: boolean;
+  lastError?: string | null;
+  hasCredentials?: boolean;
   status?: string;
   name?: string | null;
   displayName?: string | null;
@@ -271,10 +276,16 @@ export interface CalendarEventPreview {
   attendees?: (string | { name?: string; email?: string })[];
   location?: string | null;
   alreadyImported?: boolean;
+  imported?: boolean;
+  allDay?: boolean;
+  recurring?: boolean;
 }
 
 export interface ExternalWriteDto {
   id: string;
+  connectorId?: string;
+  executedAt?: string | null;
+  result?: unknown;
   provider?: string;
   target?: string;
   kind?: string;

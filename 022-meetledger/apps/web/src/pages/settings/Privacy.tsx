@@ -54,6 +54,64 @@ function PreviewValue({ v }: { v: unknown }): ReactNode {
   );
 }
 
+interface PreviewSummaryShape {
+  meetings?: { visible?: number; aiEligible?: number; aiOff?: number; confidential?: number; cloudTranscription?: number };
+  notSent?: string[];
+  ask?: { fields?: string[]; maxContexts?: number; maxContextChars?: number };
+}
+
+function PreviewSummary({ data }: { data: unknown }) {
+  const { t } = useI18n();
+  const d = (data ?? {}) as PreviewSummaryShape;
+  if (!d.meetings && !d.notSent) return null;
+  const m = d.meetings ?? {};
+  const stats: [MsgKey, number | undefined][] = [
+    ['where.stat.visible', m.visible],
+    ['where.stat.aiEligible', m.aiEligible],
+    ['where.stat.aiOff', m.aiOff],
+    ['where.stat.confidential', m.confidential],
+    ['where.stat.cloudTranscription', m.cloudTranscription],
+  ];
+  return (
+    <div className="stack where-summary">
+      {d.meetings && (
+        <div className="stat-grid">
+          {stats
+            .filter(([, v]) => typeof v === 'number')
+            .map(([k, v]) => (
+              <div className="stat" key={k}>
+                <span className="stat-value">{v}</span>
+                <span className="stat-label">{t(k)}</span>
+              </div>
+            ))}
+        </div>
+      )}
+      {d.ask?.fields && d.ask.fields.length > 0 && (
+        <div>
+          <h3 className="small-title">{t('where.askFields', { n: d.ask.maxContexts ?? '-', chars: d.ask.maxContextChars ?? '-' })}</h3>
+          <ul className="chips">
+            {d.ask.fields.map((f) => (
+              <li key={f} className="chip">
+                {f}
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+      {d.notSent && d.notSent.length > 0 && (
+        <div>
+          <h3 className="small-title">{t('where.notSent')}</h3>
+          <ul className="notice-list">
+            {d.notSent.map((x) => (
+              <li key={x}>{x}</li>
+            ))}
+          </ul>
+        </div>
+      )}
+    </div>
+  );
+}
+
 export function WherePanel({ processing, settings }: { processing: ProcessingDto; settings: WorkspaceSettingsDto }) {
   const { t } = useI18n();
   const { a } = useWs();
@@ -99,6 +157,7 @@ export function WherePanel({ processing, settings }: { processing: ProcessingDto
         </table>
       </div>
       <p className="field-hint">{t('where.aiOffNote')}</p>
+      <PreviewSummary data={preview.data} />
       <details className="preview-details">
         <summary>{t('where.previewTitle')}</summary>
         {preview.loading && !preview.data ? <Loading /> : preview.error ? <ErrorView error={preview.error} compact /> : <PreviewValue v={preview.data} />}

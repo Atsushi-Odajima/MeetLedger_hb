@@ -3,10 +3,13 @@
 // Chunks are persisted to IndexedDB while recording so a crash / reload does not lose the audio (upload later).
 
 import { idb } from './offline/idb';
+import { getOutboxUser } from './offline/outbox';
 import { extensionForMime, pickMimeType } from './media';
 
 export interface StoredRecording {
   id: string;
+  /** Recordings are only listed for the user who made them (shared devices). */
+  userId: string | null;
   wsId: string;
   meetingId: string;
   mimeType: string;
@@ -117,6 +120,7 @@ export class BrowserRecorder {
     await idb
       .put<StoredRecording>('recordings', {
         id: this.id,
+        userId: getOutboxUser(),
         wsId: this.wsId,
         meetingId: this.meetingId,
         mimeType: this.mimeType,
@@ -205,7 +209,8 @@ export class BrowserRecorder {
 
 export async function listStoredRecordings(meetingId: string): Promise<StoredRecording[]> {
   try {
-    return (await idb.all<StoredRecording>('recordings')).filter((r) => r.meetingId === meetingId && !r.uploaded);
+    const me = getOutboxUser();
+    return (await idb.all<StoredRecording>('recordings')).filter((r) => r.meetingId === meetingId && !r.uploaded && (!r.userId || r.userId === me));
   } catch {
     return [];
   }
