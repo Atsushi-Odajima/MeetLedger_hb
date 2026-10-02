@@ -50,7 +50,7 @@ Ledger 各表は `source_segment_ids uuid[]`, `source_start_ms`, `source_end_ms`
 - `transcript_segments.tsv` / `search_docs.tsv` / `ai_chunks.tsv`: アプリ側 bigram tokenizer（packages/shared/src/textIndex.ts）で生成した tsvector（GIN）。
 - `ai_chunks.embedding real[]`: AI ON かつ非 Confidential の Meeting のみ。ACL は検索時に meetings と結合して SQL で適用。
 
-## テーブル定義（自動生成: scripts/gen-data-model.sh, migrations: 001_init.sql, 010_audio_indexes.sql, 030_followup_drafts_notifications.sql, 040_search_index_meta.sql, 060_connectors_core.sql）
+## テーブル定義（自動生成: scripts/gen-data-model.sh, migrations: 001_init.sql, 010_audio_indexes.sql, 021_ledger_perf_indexes.sql, 022_ledger_review_order.sql, 030_followup_drafts_notifications.sql, 031_followup_perf_indexes.sql, 040_search_index_meta.sql, 041_search_perf.sql, 060_connectors_core.sql）
 
 ### actions
 
@@ -743,6 +743,15 @@ Ledger 各表は `source_segment_ids uuid[]`, `source_start_ms`, `source_end_ms`
 | updated_at | timestamp with time zone | NO | now() |
 | person_ids | ARRAY | NO | '{}'::uuid[] |
 | meta | jsonb | NO | '{}'::jsonb |
+
+### search_person_refs
+
+| column | type | null | default |
+|---|---|---|---|
+| org_id | uuid | NO |  |
+| workspace_id | uuid | NO |  |
+| person_id | uuid | NO |  |
+| meeting_id | uuid | NO |  |
 
 ### segment_revisions
 

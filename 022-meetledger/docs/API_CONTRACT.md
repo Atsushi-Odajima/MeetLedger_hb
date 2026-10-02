@@ -103,3 +103,10 @@ Owner column = module directory under `apps/server/src/modules/` responsible for
 | GET/POST | /api/w/:ws/external-writes ; POST /external-writes/:id/approve ; /reject | every external write = preview + explicit approval |
 | GET/POST/DELETE | /api/w/:ws/api-tokens | MCP / integration tokens (shown once) |
 | * | /mcp | MCP Streamable HTTP endpoint (Bearer token). Write tools require a confirmation step |
+
+## Pagination / bounded responses (performance, spec §40)
+- Ledger lists (`/decisions`, `/actions`, `/commitments`, `/questions`, `/contradictions`): default 50 items, `?cursor=` (opaque `nextCursor`), `total` on the first page. Keyset pagination.
+- Review Inbox (`/review`): one page = 20 visible meetings (newest first) with per-meeting groups; `counts`/`total` give exact totals; `nextCursor` for more meetings. Not-visible `meetingId` → 404.
+- Dashboard: each section top 10 + `counts.*` (capped at `countCap` = 1000). Brief/Memory: lists capped at 20 with exact `counts.*`/`more.*`; topic memory adds `scan.truncated`. Person timeline: 100 events per page + `nextCursor`.
+- Search: `truncated`, `searchedFrom`, `hint`, `query.path` (`exact`|`window`); Ask: `scope` (searched range, contextCount). Details: docs/AI_RAG_SECURITY.md §10, MEETING_MEMORY.md, DECISION_LEDGER.md.
+- Manual ledger entry (`POST /decisions|/actions|/commitments|/questions`) creates confirmed/open items; decision revoke/restore via the ledger routes (see DECISION_LEDGER.md).
