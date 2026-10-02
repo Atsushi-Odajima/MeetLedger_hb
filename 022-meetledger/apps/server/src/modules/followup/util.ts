@@ -117,6 +117,9 @@ export interface SourceInfo {
   meetingId: string | null;
   meetingTitle: string | null;
   meetingDate: string | null;
+  /** Transcript position of the evidence (lets the UI link to the exact timestamp); null for manual items. */
+  startMs: number | null;
+  endMs: number | null;
 }
 
 export interface MemDecision {
@@ -179,7 +182,13 @@ export interface MemChange {
   current: { id: string; text: string; source: SourceInfo } | null;
 }
 
-const src = (r: any): SourceInfo => ({ meetingId: r.meeting_id ?? null, meetingTitle: r.src_title ?? null, meetingDate: iso(r.src_date) });
+const src = (r: any): SourceInfo => ({
+  meetingId: r.meeting_id ?? null,
+  meetingTitle: r.src_title ?? null,
+  meetingDate: iso(r.src_date),
+  startMs: r.source_start_ms ?? null,
+  endMs: r.source_end_ms ?? null,
+});
 
 /**
  * Item scope. Every loader adds `workspace_id = $1` and the meeting ACL for user `$2`, then ANDs `ands` and ORs `ors`.
@@ -475,13 +484,13 @@ export async function loadChanges(db: Db, s0: Scope, opts: { sinceIso: string; l
   const since = s.p(opts.sinceIso);
   // workspace-wide lists walk decisions_superseded_recent; scoped lists sort their (bounded) matches instead (see dueOrder)
   const ord = opts.indexOrder ? 'd.updated_at DESC, d.id DESC' : `(d.updated_at + interval '0 seconds') DESC, d.id DESC`;
-  const succ = (cond: string) => `SELECT x.id, x.text, x.meeting_id, x.confirmed_at, x.created_at, xm.title AS m_title, ${meetingTimeSql('xm')} AS m_date
+  const succ = (cond: string) => `SELECT x.id, x.text, x.meeting_id, x.confirmed_at, x.created_at, x.source_start_ms, x.source_end_ms, xm.title AS m_title, ${meetingTimeSql('xm')} AS m_date
       FROM decisions x LEFT JOIN LATERAL (SELECT m1.* FROM meetings m1 WHERE m1.id = x.meeting_id LIMIT 1) xm ON true
      WHERE ${cond} AND x.review_state = 'confirmed' AND (x.meeting_id IS NULL OR ${meetingVisibleSql('xm', '$2')})`;
   const list = await rows(
     db,
-    `SELECT d.id, d.text, d.meeting_id, d.updated_at, d.src_title, d.src_date,
-            nd.id AS new_id, nd.text AS new_text, nd.meeting_id AS new_meeting_id, nd.m_title AS new_title, nd.m_date AS new_date,
+    `SELECT d.id, d.text, d.meeting_id, d.updated_at, d.src_title, d.src_date, d.source_start_ms, d.source_end_ms,
+            nd.source_start_ms AS new_start_ms, nd.source_end_ms AS new_end_ms, nd.id AS new_id, nd.text AS new_text, nd.meeting_id AS new_meeting_id, nd.m_title AS new_title, nd.m_date AS new_date,
             coalesce(nd.confirmed_at, nd.created_at, d.updated_at) AS changed_at
        FROM (SELECT d.*, sm.title AS src_title, ${meetingTimeSql('sm')} AS src_date FROM decisions d ${srcJoin('d')}
               WHERE ${whereFor('d', s)} AND d.review_state = 'confirmed' AND d.status = 'superseded' AND d.updated_at >= ${since}::timestamptz
@@ -498,7 +507,7 @@ export async function loadChanges(db: Db, s0: Scope, opts: { sinceIso: string; l
     changedAt: iso(r.changed_at),
     previous: { id: r.id, text: r.text, source: src(r) },
     current: r.new_id
-      ? { id: r.new_id, text: r.new_text, source: { meetingId: r.new_meeting_id, meetingTitle: r.new_title ?? null, meetingDate: iso(r.new_date) } }
+      ? { id: r.new_id, text: r.new_text, source: { meetingId: r.new_meeting_id, meetingTitle: r.new_title ?? null, meetingDate: iso(r.new_date), startMs: r.new_start_ms ?? null, endMs: r.new_end_ms ?? null } }
       : null,
   }));
 }
