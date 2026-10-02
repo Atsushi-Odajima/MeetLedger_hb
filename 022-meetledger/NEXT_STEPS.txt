@@ -1,0 +1,20 @@
+MeetLedger (#022) — NEXT STEPS（人間の作業 / 次の開発候補）
+
+[販売前に人間が行うこと]（詳細: docs/RELEASE_CHECKLIST.md）
+ 1. 商標調査（J-PlatPat / USPTO / WIPO）。問題があれば候補名から選定（自動改名はしない）
+ 2. 利用規約・プライバシーポリシー・録音同意の法務確認（APPI 28条: クラウド利用時の外国移転）
+ 3. 3D-Speaker CAM++ / silero VAD のライセンス確定、SenseVoice 表記の最終確認
+ 4. 実会議音声で文字起こし CER / 話者分離 DER を測定（自社テストセット）
+ 5. Windows 10/11・macOS 14.2/15/26 実機で Desktop の system audio 録音・署名・公証を確認
+ 6. iPhone (Safari/PWA)・Android (Chrome/PWA) 実機確認
+ 7. 実 API キーでの OpenAI / Anthropic / Deepgram / Ollama 動作確認（小さな架空データで）
+ 8. Google / Microsoft OAuth client 作成と同意画面・審査
+ 9. Docker image ビルドと compose 起動、TLS 終端、バックアップ運用
+10. 料金単価（[検索要約] のもの）の公式ページ再確認、販売価格・サポート範囲決定
+
+[次の開発候補]（初版の完成条件外。勝手に着手しない）
+ - MCP の OAuth 2.1 / RFC 9728（ChatGPT Plugin 公開配布に必須）
+ - pgvector 対応（大規模セマンティック検索）、真のセマンティック埋め込みのローカル実行
+ - AssemblyAI / ElevenLabs 文字起こし adapter
+ - Slack/Teams 書き込みの高度化、CRM 同期（§42 Pro 候補）、SSO/SCIM、team analytics、advanced live assist
+ - Electron の macOS loopback の安定化（Electron issue #52738 の追跡）

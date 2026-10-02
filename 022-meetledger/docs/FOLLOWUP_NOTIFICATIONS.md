@@ -105,8 +105,8 @@
   - `EMAIL_DRIVER=outbox`（既定）: `email_outbox` に `held` で保存するだけ（外部送信なし）
   - `EMAIL_DRIVER=smtp`: `SmtpEmail`（nodemailer、`SMTP_URL` 必須）。outbox に `queued` → `sent` / `failed` を記録し、`external_calls` に
     host・バイト数・結果のみ記録（本文・資格情報は記録しない）
-- 注意: 現状 `app.ts` は `opts.email ?? new OutboxEmail()` を使っています。SMTP を有効化するには app.ts（core 担当）で
-  `createEmailAdapter(config)` に置き換える必要があります。
+- `app.ts` は `opts.email ?? createEmailAdapter(config)` を使うため、`EMAIL_DRIVER=smtp` と `SMTP_URL` を設定すれば SMTP で送信されます
+  （コード変更は不要）。CLI（`cli/main.ts`）は常に `OutboxEmail` です。各ユーザーの「通知の設定 → メールでも受け取る」（`email_enabled`）は既定 OFF です。
 
 ### 通知 API（ユーザー単位・全組織横断）
 | | |

@@ -4,7 +4,7 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 DB="${1:-$(psql -h 127.0.0.1 -p 55432 -U postgres -Atc "SELECT datname FROM pg_database WHERE datname LIKE 'ml_tpl_%' ORDER BY oid DESC LIMIT 1")}"
 {
-  cat docs/_data_model_head.md
+  cat scripts/data-model-head.md
   echo "## テーブル定義（自動生成: scripts/gen-data-model.sh, migrations: $(psql -h 127.0.0.1 -p 55432 -U postgres -d "$DB" -Atc "SELECT string_agg(name, ', ' ORDER BY name) FROM schema_migrations")）"
   psql -h 127.0.0.1 -p 55432 -U postgres -d "$DB" -At -F $'\t' -c "
     SELECT c.table_name, c.column_name, c.data_type, c.is_nullable, coalesce(c.column_default,'')

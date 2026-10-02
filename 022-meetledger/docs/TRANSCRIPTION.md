@@ -76,14 +76,14 @@ readWavFile / wavPcmSha256 / INAUDIBLE
 
 | コンポーネント | ライセンス | 商用 | 注意 |
 |---|---|---|---|
-| SenseVoiceSmall 重み（iic/SenseVoiceSmall, Alibaba） | FunASR Model Open Source License v1.1 | 可（条件付き） | **§2.2 出典・作者・モデル名の表示が必須**（アプリの「ライセンス」画面に `SenseVoiceSmall © Alibaba Group (FunAudioLLM), FunASR Model License v1.1` を表示）。ライセンス改訂が自動発効するため定期確認 |
+| SenseVoiceSmall 重み（iic/SenseVoiceSmall, Alibaba） | FunASR Model Open Source License v1.1 | 可（条件付き） | **§2.2 出典・作者・モデル名の表示が必須**（Web アプリの「設定 → このアプリについて・ライセンス」の「ローカル文字起こしに使うAIモデル」（`apps/web/src/pages/settings/About.tsx`）と、デスクトップアプリ設定画面の「クレジット表記」に `SenseVoiceSmall © Alibaba Group (Tongyi Lab / FunAudioLLM). Licensed under the FunASR Model Open Source License v1.1. Converted to ONNX by k2-fsa/sherpa-onnx.` を表示）。ライセンス改訂が自動発効するため定期確認 |
 | Silero VAD | MIT（原文は未再確認） | 可 | |
 | pyannote segmentation-3.0 | MIT (c) 2022 CNRS | 可 | 再配布時は LICENSE 同梱 |
 | 3D-Speaker CAM++ zh_en | 3D-Speaker リポジトリは Apache-2.0、個別モデルカードは **未確認** | 要確認 | 販売前に法務確認 |
 | sherpa-onnx | Apache-2.0 | 可 | |
 | reverb-diarization-v1 | Non-Production License | **不可** | カタログに含めない |
 
-`MODEL_CATALOG[].licenses[].attribution` に表示用文言を持たせています（デスクトップ/Web の About 画面で使用してください）。
+`MODEL_CATALOG[].licenses[].attribution` に表示用文言を持たせています（デスクトップは設定画面「クレジット表記」で使用。Web の「設定 → このアプリについて・ライセンス」は同じ文言を `About.tsx` に保持し、`buyer-docs/THIRD_PARTY_NOTICES.txt`（Web ビルド時に `/THIRD_PARTY_NOTICES.txt` として配信）も表示します。文言を変える場合は 3 か所を揃えてください）。
 
 ## 4. 聞き取れない部分の扱い（共通ポリシー）
 

@@ -12,7 +12,8 @@ const P = {
   transcription: {
     'Local (sherpa-onnx SenseVoice)': { perHour: 0, source: 'no API fee (compute only)' },
     'Deepgram Nova-3 Multilingual + 話者分離 [対応済]': { perHour: 0.432, source: '$0.0052/min + $0.0020/min [検索要約]' },
-    'OpenAI gpt-4o-mini-transcribe (話者分離なし, 2027-02-26終了予定) [対応済・model変更で利用]': { perHour: 0.18, source: '$0.003/min [検索要約]' },
+    'Deepgram Nova-3 Multilingual 話者分離なし [対応済]': { perHour: 0.312, source: '$0.0052/min [検索要約]' },
+    'OpenAI gpt-4o-mini-transcribe (話者分離・timestampなし, 2027-02-26終了予定) [model変更で利用可・非推奨]': { perHour: 0.18, source: '$0.003/min [検索要約]' },
     '（参考・本バージョン未対応）AssemblyAI Universal-3.5 Pro + 話者分離': { perHour: 0.23, source: '$0.21/h + $0.02/h [検索要約]' },
     '（参考・本バージョン未対応）ElevenLabs Scribe v2 (話者分離込み)': { perHour: 0.22, source: '$0.22/h [検索要約]' },
   },
@@ -66,7 +67,7 @@ function dbTier(h) {
 
 const PLANS = [
   { name: 'A. Local-first（既定）', t: 'Local (sherpa-onnx SenseVoice)', l: 'Local rules (外部送信なし)', e: 'local-hash' },
-  { name: 'B. Cloud economy（話者分離なし）', t: 'OpenAI gpt-4o-mini-transcribe (話者分離なし, 2027-02-26終了予定) [対応済・model変更で利用]', l: 'Claude Haiku 4.5', e: 'OpenAI text-embedding-3-small' },
+  { name: 'B. Cloud economy（話者分離なし）', t: 'Deepgram Nova-3 Multilingual 話者分離なし [対応済]', l: 'Claude Haiku 4.5', e: 'OpenAI text-embedding-3-small' },
   { name: 'C. Cloud standard', t: 'Deepgram Nova-3 Multilingual + 話者分離 [対応済]', l: 'Claude Sonnet 5.5', e: 'OpenAI text-embedding-3-small' },
   { name: 'D. Local音声 + Cloud AI', t: 'Local (sherpa-onnx SenseVoice)', l: 'Claude Haiku 4.5', e: 'local-hash' },
 ];

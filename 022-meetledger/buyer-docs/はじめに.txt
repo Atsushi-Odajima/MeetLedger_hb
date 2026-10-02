@@ -67,7 +67,8 @@ MeetLedger は、会議の「決まったこと」「やること」「約束」
   ブラウザ（Web アプリ / PWA）
     - パソコン: Chrome / Edge（タブの音声も録音できる場合があります）、Safari、Firefox（マイクのみ）
     - スマートフォン: iPhone / iPad（Safari）、Android（Chrome）。録音はマイクのみです（「スマホ-PWA.txt」）
-    - 自動テストはパソコンの Chromium でのみ実施しています。その他のブラウザ・実機での確認は未検証です。
+    - 自動テストは Chromium で実施しています（スマートフォンは iPhone 15 / Pixel 8 の画面を Chromium で模擬）。
+      Safari（WebKit）・Firefox・スマートフォン実機での確認は未検証です。
 
   デスクトップアプリ（任意）
     - Windows 10 / 11（x64）、macOS（相手側の音声の録音は macOS 14.2 以降）
@@ -98,11 +99,11 @@ MeetLedger は、会議の「決まったこと」「やること」「約束」
   3) 起動します。
 
        cd deploy
-       docker compose --env-file ../.env up -d --build
+       docker compose --env-file ../.env up -d
 
-     ※ compose ファイル内の ${POSTGRES_SUPERUSER_PASSWORD} などは、Docker Compose の仕様上、
-       compose ファイルと同じフォルダの .env から読まれます。上のように --env-file ../.env を
-       付けるか、deploy/.env にも同じ値を書いてください（要確認）。
+     ※ --env-file ../.env は必ず付けてください。compose ファイル内の ${POSTGRES_SUPERUSER_PASSWORD} などを
+       ../.env から読み込むためです。初回はイメージの作成（ビルド）が行われます。新しいバージョンに
+       入れ替えたときは up -d --build で作り直してください。
 
   4) 文字起こしモデルを入れます（6 章）。
   5) サーバーは 127.0.0.1:8787 で待ち受けます。外部に公開するときは、Caddy や nginx などの
@@ -165,7 +166,8 @@ MeetLedger は、会議の「決まったこと」「やること」「約束」
       docker compose --env-file ../.env cp ../models/. app:/models/
     または docker-compose.yml の「models:/models」を、ホストのフォルダ（例: /srv/meetledger/models:/models:ro）
     に書き換えて使います。
-  - モデルのライセンスと表示が必要な文言は「THIRD_PARTY_NOTICES.txt」1 章をご覧ください。
+  - モデルのライセンスと表示が必要な文言は、「設定」→「このアプリについて・ライセンス」の
+    「ローカル文字起こしに使うAIモデル」と「THIRD_PARTY_NOTICES.txt」1 章に記載しています。
     話者の声の特徴を数値にするモデル（3D-Speaker CAM++）は、商用利用のライセンスが未確認です。
     販売・商用利用の前に法務確認が必要です（文字起こしだけなら sense-voice のみで動きます）。
   - モデルが無いまま録音をアップロードすると、「処理の状況」に「ローカル文字起こしを実行できません」と
@@ -224,6 +226,15 @@ MeetLedger は、会議の「決まったこと」「やること」「約束」
 
   画面右上: 未同期の変更、通知、表示言語の切り替え（日本語 / English）、アカウントメニュー
 
+  「設定」の中のメニュー
+    プライバシー / メンバーと権限 / 招待 / コネクタ / 外部送信の承認 / APIトークン・MCP / データ / アカウント /
+    このアプリについて・ライセンス（バージョン、AIモデルとフォントのライセンス、第三者ソフトウェアの表示）
+
+  一覧の見かた
+    - 件数の多い一覧は途中までを表示し、下の「もっと見る」で続きを読み込みます（全体の件数も表示されます）。
+    - ダッシュボードの各欄は上位 10 件までを表示します。続きは「すべて見る」から開きます。
+      件数がとても多い場合は「1000+」のように表示されます。
+
 
 10. ドキュメント一覧
 ----------------------------------------------------
@@ -245,6 +256,7 @@ MeetLedger は、会議の「決まったこと」「やること」「約束」
     Backup-Restore.txt        バックアップと復元
     Connector.txt             カレンダー・外部送信・API・ChatGPT / Codex 連携
     THIRD_PARTY_NOTICES.txt   第三者ソフトウェア・モデル・フォントの表示
+                              （Web アプリの「設定」→「このアプリについて・ライセンス」でも表示できます）
 
   docs/（技術者向け。英語・専門用語を含みます）
     DEVELOPMENT.md（開発環境）、OPERATIONS.md（運用・CLI）、SECURITY.md、PRIVACY_CONSENT.md、

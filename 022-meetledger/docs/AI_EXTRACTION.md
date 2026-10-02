@@ -38,7 +38,7 @@ AIの出力は一切信用しません。**すべて Candidate として保存�
   - anthropic: `claude-opus-5-5`
   - openai: `gpt-6.1-sol`、ollama: `qwen3:8b` — **この2つは調査資料由来で実APIでの動作確認はしていません。本番では `AI_MODEL` を明示してください。**
 - Anthropic: `claude-opus-5-5` / `claude-sonnet-5-5` / `claude-opus-5` / `claude-fable-5-1` では安全分類器による拒否時のサーバー側フォールバック（`fallbacks: "default"`、beta `server-side-fallback-2026-07-01`）を有効にしています。送信先は同じ Anthropic API で、追加のデータ送信先はありません。拒否（`stop_reason: refusal`）は再試行しないエラーになります。
-- **Ollama と GuardedHttp**: GuardedHttp は「外部送信の判定（isLocal=false）」が無い内容送信を拒否する設計のため、Ollama アダプタは HTTP 送信として `isLocal:false` に読み替えて Guard を通します（AI OFF/Confidential の再確認と `external_calls` への記録は通常どおり行われます）。`OLLAMA_URL` が別ホストを指していても記録が残ります。
+- **Ollama と GuardedHttp**: Ollama はオンプレミス扱い（decision `isLocal: true`）。インストール設定 `AI_PROVIDER=ollama` の場合だけ Workspace 管理者が選べます（`privacy/policy.ts`。有効でなければ local-rules）。GuardedHttp は isLocal の decision を、ループバックまたは `OLLAMA_URL` のホストへの送信に限って許可し、AI OFF/Confidential の DB 再確認と `external_calls` への記録は通常どおり行います。
 - 入力上限: クラウド 80万文字、Ollama 10万文字。超える場合は `local-rules` で処理します（チャンク分割は未実装）。
 
 ## 3. 何が送信されるか（クラウド/Ollama）

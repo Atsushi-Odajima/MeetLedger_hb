@@ -172,14 +172,17 @@ AI OFF / Confidential のデータが外部送信されないこと、GuardedHtt
 ## 9. 制限事項（正直な記載）
 
 - **`local-hash` は語彙的（lexical）な特徴ハッシュであり、意味的な埋め込みではない**。同じ文字バイグラム・単語を共有しない同義語
-  （例: 価格 / 値段）は近くならない。意味検索が必要な場合はクラウド（OpenAI）またはOllamaを有効化する。
+  （例: 価格 / 値段）は近くならない。意味検索が必要な場合はクラウド（OpenAI）またはOllama（自己ホスト）を有効化する。
 - ベクトル近傍探索インデックス（pgvector等）は使っていない。cosine は SQL 内で各ウィンドウの候補（キーワード一致 + 最新ウィンドウ）
   に対して計算するため、大きなワークスペースでは古いチャンクの「語彙を共有しない」意味的一致を取りこぼす可能性がある。
 - 全文検索は新しい順のウィンドウ + 時間予算で行う（§10）。**頻出語は常に高速だが、稀な語・一致なしの語は予算内で見られた範囲
   （`searchedFrom` 以降）だけが対象**になり `truncated: true` を返す。完全な結果には期間・Project・人物で絞り込むか、§10 の DBA 設定を行う。
-- **Ollama embedding**: 指示どおり `deps.http`（kind `embedding`、isLocal の decision）経由で送信するが、現行の `GuardedHttp.verify` は
-  content系の呼び出しで `decision.isLocal = true` を拒否するため、実際には `local-hash` にフォールバックする（ジョブ結果の `embeddingFallback` に記録）。
-  自己ホスト先（ループバック / `OLLAMA_URL`）を許可するよう guard 側の変更が必要。Ollama のモデル名は `nomic-embed-text` 固定（設定キー未追加）。
+- **Ollama embedding**: `deps.http`（kind `embedding`、isLocal の decision）経由のオンプレミス呼び出しとして送信される。`GuardedHttp.verify` は
+  isLocal の decision に対し、宛先がループバック（localhost / 127.0.0.1 / ::1）または `OLLAMA_URL` のホストである場合だけ許可する
+  （`privacy/externalHttp.ts: isLocalTarget`、`app.ts: localHostsFrom`）。AI OFF / Confidential の DB 再確認と `external_calls` への記録は通常どおり。
+  使えるのはインストール設定 `EMBEDDING_PROVIDER=ollama` の場合のみ（`privacy/policy.ts: decideEmbedding`。有効でなければ `local-hash`）。
+  失敗時は `local-hash` にフォールバックし `embeddingFallback` に記録する。Ollama のモデル名は `nomic-embed-text` 固定（設定キー未追加）。
+  実 Ollama での動作・検索品質は未検証。
 - 人物名の照合は「フルネーム」または「姓/名＋敬称」「英字の単語」。敬称無しの姓のみ（「田中の」）は曖昧なため人物フィルタにしない（キーワードとして扱う）。
 - 明示的な月指定（「9月の会議」）は日付フィルタにしない（「10月公開」等の内容語と区別できないため）。
 - Meeting に紐付かない Workspace 直下の Ledger 項目は `search_docs` に索引されない（index.meeting の対象外）。

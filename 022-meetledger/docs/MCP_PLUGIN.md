@@ -83,7 +83,7 @@ MeetLedger 内のデータだけを扱うので全ツール `openWorldHint: fals
 
 ## 5. 認証（API トークン）
 
-- MeetLedger の Web 画面（設定 → API トークン）で作成。`read`（参照のみ）または `read+write`。平文は作成時に 1 回だけ表示、DB は sha256 のみ。
+- MeetLedger の Web 画面（設定 → APIトークン・MCP）で作成。`read`（参照のみ）または `read+write`。平文は作成時に 1 回だけ表示、DB は sha256 のみ。
 - トークンは **1 つの Workspace に固定**、権限は **member 上限**（admin 操作・外部送信の承認は不可）。失効は即時。
 - MCP サーバは OAuth 2.1 の**リソースサーバ機能（RFC 9728 Protected Resource Metadata、`/.well-known/oauth-protected-resource`、audience 検証）を未実装**。
   - Codex（`bearer_token_env_var`）、stdio クライアント、社内ツールは Bearer トークンで利用可能。
@@ -113,7 +113,7 @@ approval_mode = "prompt"
 ```
 
 ```sh
-export MEETLEDGER_TOKEN="mlt_..."   # 設定 → API トークンで作成（read 推奨、作成系を使う場合のみ read+write）
+export MEETLEDGER_TOKEN="mlt_..."   # 設定 → APIトークン・MCP で作成（read 推奨、作成系を使う場合のみ read+write）
 codex   # 起動後 /mcp でツール一覧を確認
 ```
 

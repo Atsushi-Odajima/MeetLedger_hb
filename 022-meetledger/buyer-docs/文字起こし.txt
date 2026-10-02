@@ -32,7 +32,7 @@ MeetLedger 文字起こしガイド
   - 処理はすべてサーバー（またはデスクトップアプリのパソコン）の CPU で行い、文字起こしのために
     外部サービスへ通信しません。
   - モデルのライセンス: SenseVoiceSmall は出典表示が必要、3D-Speaker CAM++ は商用利用のライセンスが
-    未確認です（「THIRD_PARTY_NOTICES.txt」1 章）。
+    未確認です（「設定」→「このアプリについて・ライセンス」、「THIRD_PARTY_NOTICES.txt」1 章）。
 
 
 3. 速度と精度の目安

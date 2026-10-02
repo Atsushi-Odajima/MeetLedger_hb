@@ -28,7 +28,7 @@
 | 話者分離の声の特徴量 | 処理中のメモリ内でのみ使用、**保存しない**。声による本人特定はしない（Speaker 1/2 → 人間が名前を割当） | Provider 側の diarization | — |
 | 外部連携（Slack/Gmail/HubSpot/Webhook） | 送信しない | **preview → 明示承認 → 1回送信** | external_write_requests |
 
-- **外部送信の監査**: クラウドへの送信はすべて `GuardedHttp` を通り、送信直前に DB 上の Meeting 設定（AI OFF / Confidential / Local）を再確認し、メタデータ（日時・種類・送信先ホスト・バイト数、**本文なし**）を `external_calls` に記録する。Settings > Privacy の「どこに何が送られるか」と `GET /ai/privacy-preview` で事前に確認できる。
+- **外部送信の監査**: クラウドへの送信はすべて `GuardedHttp` を通り、送信直前に DB 上の Meeting 設定（AI OFF / Confidential / Local）を再確認し、メタデータ（日時・種類・送信先ホスト・バイト数、**本文なし**）を `external_calls` に記録する。Web の「設定 → プライバシー」の「どこに何が送られるか」と `GET /ai/privacy-preview` で事前に確認できる。
 - **二重の opt-in**: クラウド処理は (1) インストール設定（`CLOUD_TRANSCRIPTION_PROVIDER` / `AI_PROVIDER` と API キー）と (2) Workspace 管理者の `cloudAllowed` の両方が必要。既定はどちらも OFF。
 - **Confidential Meeting**: AI OFF、クラウド文字起こし不可（local へ変更）、音声は処理後削除、Workspace 全体公開不可（private へ）。
 - **Local mode の実際の動作**: 文字起こし（sherpa-onnx SenseVoice）と話者分離（pyannote-seg-3.0 + CAM++）はサーバ（自己ホスト）または Desktop の CPU 上で実行され、音声は文字起こし事業者へ送られない（必須テスト#28/E2E-7 で外部呼び出し 0 件を検証）。モデルの初回ダウンロード（GitHub releases）は利用者の明示操作でのみ行う。**「local だから完全に安全」ではない**: サーバ/PC 自体の管理（OS 更新、ディスク暗号化、アクセス権、バックアップの保管）は利用者の責任。

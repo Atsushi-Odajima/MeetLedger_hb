@@ -62,31 +62,25 @@ const upload = async (meetingId: string, file: string, mime: string) => {
 };
 
 // 1) upload throughput: 60-minute Opus 64 kbps (web recorder) file
+// 2) real local transcription latency of that 60-minute recording (sherpa SenseVoice + VAD + diarization)
 {
   const f = join(tmp, 'sixty.webm');
   loopAudio(3600, f, ['-c:a', 'libopus', '-b:a', '64k']);
   const mb = statSync(f).size / 1024 / 1024;
-  const id = await mkMeeting('upload 60min');
+  const id = await mkMeeting('upload+asr 60min', { aiEnabled: false });
   const r = await upload(id, f, 'audio/webm');
   results.upload60min = { status: r.status, sizeMB: +mb.toFixed(1), ms: Math.round(r.ms), MBps: +(mb / (r.ms / 1000)).toFixed(1) };
   console.log('upload', results.upload60min);
-}
-
-// 2) real local transcription latency: 10-minute looped Japanese speech, sherpa SenseVoice + diarization
-{
-  const f = join(tmp, 'ten.wav');
-  loopAudio(600, f, ['-ar', '16000', '-ac', '1']);
-  const id = await mkMeeting('asr 10min', { aiEnabled: false });
-  const up = await upload(id, f, 'audio/wav');
   const w = new Worker(pool, { concurrency: 1, pollMs: 50 });
   registerJobHandlers(w, deps);
   const t = performance.now();
   await w.drain();
   const ms = performance.now() - t;
   const segs = await withTenant(pool, orgId, async (db) => (await db.query('SELECT count(*)::int n FROM transcript_segments WHERE meeting_id=$1', [id])).rows[0].n);
+  const speakers = await withTenant(pool, orgId, async (db) => (await db.query('SELECT count(*)::int n FROM meeting_speakers WHERE meeting_id=$1', [id])).rows[0].n);
   const ext = await withTenant(pool, orgId, async (db) => (await db.query('SELECT count(*)::int n FROM external_calls')).rows[0].n);
-  results.localAsr10min = { uploadStatus: up.status, processMs: Math.round(ms), rtf: +(ms / 1000 / 600).toFixed(3), segments: segs, externalCalls: ext };
-  console.log('asr', results.localAsr10min);
+  results.localAsr60min = { processMs: Math.round(ms), rtf: +(ms / 1000 / 3600).toFixed(3), segments: segs, speakers, externalCalls: ext, note: 'looped clean ja.wav; includes decode+normalize+VAD+ASR+diarization+DB write' };
+  console.log('asr', results.localAsr60min);
 }
 
 // 3) AI extraction (local-rules) on a synthetic 1-hour transcript (900 segments)

@@ -28,7 +28,8 @@
 |---|---|---|
 | 文字起こし: Local (sherpa-onnx SenseVoice) | no API fee (compute only) | $0.00 (約¥0) |
 | 文字起こし: Deepgram Nova-3 Multilingual + 話者分離 [対応済] | $0.0052/min + $0.0020/min [検索要約] | $0.43 (約¥65) |
-| 文字起こし: OpenAI gpt-4o-mini-transcribe (話者分離なし, 2027-02-26終了予定) [対応済・model変更で利用] | $0.003/min [検索要約] | $0.18 (約¥27) |
+| 文字起こし: Deepgram Nova-3 Multilingual 話者分離なし [対応済] | $0.0052/min [検索要約] | $0.31 (約¥47) |
+| 文字起こし: OpenAI gpt-4o-mini-transcribe (話者分離・timestampなし, 2027-02-26終了予定) [model変更で利用可・非推奨] | $0.003/min [検索要約] | $0.18 (約¥27) |
 | 文字起こし: （参考・本バージョン未対応）AssemblyAI Universal-3.5 Pro + 話者分離 | $0.21/h + $0.02/h [検索要約] | $0.23 (約¥35) |
 | 文字起こし: （参考・本バージョン未対応）ElevenLabs Scribe v2 (話者分離込み) | $0.22/h [検索要約] | $0.22 (約¥33) |
 | AI(要約/抽出/Ask/文面): Local rules (外部送信なし) | no API fee | $0.00 (約¥0) |
@@ -46,7 +47,7 @@
 | プラン | 10時間/月 | 50時間/月 | 200時間/月 | 1000時間/月 |
 |---|---|---|---|---|
 | A. Local-first（既定） | $18.32 (約¥2,748) | $18.41 (約¥2,761) | $36.93 (約¥5,540) | $75.86 (約¥11,379) |
-| B. Cloud economy（話者分離なし） | $20.71 (約¥3,106) | $30.35 (約¥4,552) | $84.69 (約¥12,703) | $314.64 (約¥47,196) |
+| B. Cloud economy（話者分離なし） | $22.03 (約¥3,304) | $36.95 (約¥5,542) | $111.09 (約¥16,663) | $446.64 (約¥66,996) |
 | C. Cloud standard | $23.81 (約¥3,572) | $45.86 (約¥6,879) | $146.75 (約¥22,012) | $624.94 (約¥93,741) |
 | D. Local音声 + Cloud AI | $18.90 (約¥2,836) | $21.32 (約¥3,198) | $48.59 (約¥7,289) | $134.16 (約¥20,124) |
 
@@ -81,7 +82,7 @@
 ## 2. 読み方・注意
 - 上表の月額は **API/送信系 + マネージドDB + 音声保存** の合計。**アプリサーバ（VM/コンテナ）、TLS 終端、バックアップ保管、監視、人件費は含まない**（利用先の環境で大きく変わるため）。
 - Local-first（プラン A）は API 費が 0 の代わりに CPU 時間が必要。1000 時間/月なら RTF 0.21 で約 210 CPU 時間 → 4 vCPU 機で概ね 1 日 2〜3 時間の処理負荷。夜間や会議後の空き時間に処理するなら専用機 1 台で賄える規模。
-- Cloud 文字起こしは「話者分離込み」で比較すること（Deepgram は話者分離が別料金）。**本バージョンが対応する Cloud 文字起こしは OpenAI と Deepgram のみ**。AssemblyAI / ElevenLabs は参考価格（未対応、Pro 候補）。
+- Cloud 文字起こしは「話者分離込み」で比較すること（Deepgram は話者分離が別料金）。**本バージョンが対応する Cloud 文字起こしは OpenAI と Deepgram のみ**。OpenAI は既定の gpt-4o-transcribe-diarize（話者分離・timestamp あり、トークン課金のため分単価は未確認）を推奨。gpt-4o-mini-transcribe は安価だが話者分離・timestamp がなく引用リンクが弱くなるため非推奨。AssemblyAI / ElevenLabs は参考価格（未対応、Pro 候補）。
 - **OpenAI の gpt-4o 系文字起こしモデルは 2027-02-26 提供終了予定**（後継 gpt-transcribe の話者分離対応は未確認）。MeetLedger はモデル名を `OPENAI_TRANSCRIBE_MODEL` で変更可能。
 - 新しい Claude モデルのトークナイザは同じ日本語文で約 30% 多くのトークンを使う場合がある（research A）。上表は 1 token/文字の保守的な仮定。
 - AI OFF / Confidential Meeting は AI 費・埋め込み費が 0。
@@ -94,7 +95,7 @@
 | 〜50時間（個人・小チーム） | プラン A（Local-first）、DB t4g.micro 相当、アプリ同居 | 約 $18（約2,800円）+ アプリサーバ |
 | 〜200時間（チーム） | A または D（Local音声 + Cloud AI Haiku）、DB t4g.small | 約 $37〜48（約5,500〜7,300円）+ アプリサーバ |
 | 〜1000時間（部門） | A/D + Worker を別プロセス化（`RUN_WORKER`）、DB t4g.medium | 約 $75〜133（約11,000〜20,000円）+ アプリ/Worker サーバ |
-| Cloud 優先 | B（OpenAI gpt-4o-mini-transcribe + Haiku、話者分離なし）/ C（Deepgram Nova-3 + 話者分離 + Sonnet） | 1000時間で約 $315 / $625 |
+| Cloud 優先 | B（Deepgram Nova-3 話者分離なし + Haiku）/ C（Deepgram Nova-3 + 話者分離 + Sonnet） | 1000時間で約 $446 / $625 |
 
 ## 4. コストを抑える設定
 1. 文字起こしは Local（既定）。Cloud は精度が必要な Meeting だけ `transcriptionMode=cloud`。
