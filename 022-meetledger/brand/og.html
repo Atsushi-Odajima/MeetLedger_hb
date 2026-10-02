@@ -1,0 +1,56 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<title>MeetLedger OG image</title>
+<!-- Source for brand/og.png (1200x630). Rendered by brand/scripts/build.py.
+     No font files are bundled: the build injects temporary @font-face rules (Noto Sans JP / Inter, OFL)
+     at render time only. Opened directly, it falls back to the OS font stack. -->
+<style>
+  :root {
+    --ink: #0B2A33; --teal: #0F4C5C; --teal-50: #EAF4F3; --green-700: #147A64;
+    --mint: #5FD4BC; --gray-600: #51646A; --paper: #F6F9F9;
+    --font: "Noto Sans JP", "Hiragino Sans", "Hiragino Kaku Gothic ProN", "Yu Gothic UI", "Meiryo", system-ui, sans-serif;
+  }
+  html, body { margin: 0; padding: 0; }
+  body { width: 1200px; height: 630px; overflow: hidden; background: var(--paper); font-family: var(--font); color: var(--ink); }
+  .og { position: relative; width: 1200px; height: 630px; display: grid; grid-template-columns: 1fr 440px; }
+  .left { padding: 64px 0 0 76px; display: flex; flex-direction: column; }
+  .logo { height: 52px; width: auto; align-self: flex-start; }
+  h1 { margin: 72px 0 0; font-size: 74px; line-height: 1.22; font-weight: 700; letter-spacing: .02em; }
+  .sub { margin: 26px 0 0; font-size: 28px; font-weight: 500; color: var(--gray-600); letter-spacing: .03em; }
+  .flow { margin: auto 0 60px; display: flex; align-items: center; gap: 10px; padding: 0; list-style: none; }
+  .flow li { font-size: 19px; font-weight: 700; color: var(--teal); background: var(--teal-50);
+             border-radius: 999px; padding: 8px 16px; white-space: nowrap; }
+  .flow .sep { background: none; padding: 0; color: #1E9E82; font-weight: 700; }
+  .right { position: relative; background: var(--teal); overflow: hidden; }
+  .right svg.rules { position: absolute; inset: 0; }
+  .right img { position: absolute; left: 50%; top: 50%; width: 248px; height: 248px; transform: translate(-50%, -52%); }
+</style>
+</head>
+<body>
+<div class="og">
+  <div class="left">
+    <img class="logo" src="logo-horizontal.svg" alt="MeetLedger">
+    <h1>会議しただけで<br>終わらせない。</h1>
+    <p class="sub">決まったことを、次の会議まで忘れない。</p>
+    <ul class="flow">
+      <li>会議を記録</li><li class="sep">›</li>
+      <li>決まったこと</li><li class="sep">›</li>
+      <li>やること・約束</li><li class="sep">›</li>
+      <li>次回準備</li>
+    </ul>
+  </div>
+  <div class="right">
+    <!-- ledger paper: ruled lines + margin line -->
+    <svg class="rules" width="440" height="630" viewBox="0 0 440 630" aria-hidden="true">
+      <g stroke="#5FD4BC" stroke-opacity=".13" stroke-width="2">
+        <path d="M0 75H440M0 135H440M0 195H440M0 255H440M0 315H440M0 375H440M0 435H440M0 495H440M0 555H440"/>
+      </g>
+      <path d="M64 0V630" stroke="#5FD4BC" stroke-opacity=".32" stroke-width="2"/>
+    </svg>
+    <img src="logo-mark-dark.svg" alt="">
+  </div>
+</div>
+</body>
+</html>

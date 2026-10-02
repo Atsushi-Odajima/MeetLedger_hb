@@ -1,0 +1,35 @@
+MeetLedger brand assets - third-party font notice
+==================================================
+
+No font files are included in this repository. The fonts below were downloaded to a
+temporary directory at build time only (see brand/scripts/build.py) and were never committed.
+
+1) Inter (Inter Display SemiBold) - wordmark outlines
+-----------------------------------------------------
+Used for:   The "MeetLedger" wordmark in brand/logo-horizontal*.svg, brand/wordmark*.svg
+            and every raster derived from them. Glyph outlines were converted to static SVG
+            paths (HarfBuzz shaping with kerning, tracking -0.01em) with fontTools.
+Font:       Inter Display SemiBold, release v4.1 (name table: "Version 4.001;git-9221beed3")
+Author:     Rasmus Andersson / The Inter Project Authors
+Copyright:  Copyright (c) 2016 The Inter Project Authors (https://github.com/rsms/inter)
+License:    SIL Open Font License, Version 1.1 (no Reserved Font Name declared)
+            https://openfontlicense.org/  (also http://scripts.sil.org/OFL)
+Source:     https://github.com/rsms/inter/releases/download/v4.1/Inter-4.1.zip
+            SHA-256 9883fdd4a49d4fb66bd8177ba6625ef9a64aa45899767dde3d36aa425756b11e
+
+2) Noto Sans JP - rendering Japanese text in raster images only
+---------------------------------------------------------------
+Used for:   Rasterising the Japanese copy in brand/og.png (= apps/web/public/og.png) and
+            brand/brand-board.png. Nothing from this font is embedded in any SVG.
+Font:       Noto Sans JP 2.004 (Regular / Medium / Bold)
+Copyright:  (c) 2014-2021 Adobe (http://www.adobe.com/), with Reserved Font Name 'Source'.
+License:    SIL Open Font License, Version 1.1
+Source:     https://github.com/notofonts/noto-cjk/releases/download/Sans2.004/16_NotoSansJP.zip
+            SHA-256 2bbdd2c20f30670b39ca735c96d75f1fdabdb348103e43b820cf17701fd22b18
+
+Note
+----
+The SIL OFL 1.1 governs the Font Software itself. Artwork, logos and images created with an
+OFL font are not required to be distributed under the OFL (see the OFL FAQ). This notice is
+kept for attribution and provenance. If a font file is ever shipped with the product (e.g. a
+web font), its OFL.txt must be shipped alongside it and the font must not be sold by itself.

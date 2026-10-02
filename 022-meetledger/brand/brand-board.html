@@ -1,0 +1,349 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>MeetLedger Brand Board</title>
+<!-- Source for brand/brand-board.png (1600px wide). Rendered by brand/scripts/build.py.
+     No photos, no bundled fonts. Pictograms are hand-drawn inline SVG. -->
+<style>
+  :root {
+    --ink: #0B2A33; --teal: #0F4C5C; --teal-50: #EAF4F3; --green: #1E9E82; --green-700: #147A64;
+    --mint: #5FD4BC; --indigo: #3D4FA0; --amber: #E3A33B; --gray-600: #51646A; --gray-300: #C2CFD2;
+    --gray-100: #EEF3F4; --paper: #F6F9F9; --white: #FFFFFF; --night: #0A161B; --night-900: #102229;
+    --frost: #EAF5F3; --frost-300: #9DB3B8;
+    --font: "Inter", "Noto Sans JP", system-ui, -apple-system, "Segoe UI", "Hiragino Sans", "Hiragino Kaku Gothic ProN",
+            "Yu Gothic UI", "Meiryo", sans-serif;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; }
+  body { width: 1600px; background: var(--paper); color: var(--ink); font-family: var(--font); -webkit-font-smoothing: antialiased; }
+  .board { padding: 56px 72px 64px; display: flex; flex-direction: column; gap: 40px; }
+  .top { display: flex; justify-content: space-between; align-items: baseline; color: var(--gray-600); font-size: 15px; letter-spacing: .04em; }
+  .top b { color: var(--ink); font-weight: 600; }
+  .label { display: flex; align-items: baseline; gap: 12px; margin: 0 0 16px; font-size: 15px; font-weight: 700; color: var(--teal); letter-spacing: .06em; }
+  .label span { color: var(--green-700); font-variant-numeric: tabular-nums; }
+  .card { background: var(--white); border: 1px solid var(--gray-300); border-radius: 20px; }
+
+  /* 01 logo */
+  .logo-row { display: grid; grid-template-columns: 1.45fr 1fr; gap: 24px; }
+  .logo-light, .logo-dark { height: 300px; display: flex; align-items: center; justify-content: center; position: relative; }
+  .logo-light img { height: 112px; }
+  .logo-dark { background: var(--night); border-color: var(--night); flex-direction: column; gap: 36px; }
+  .logo-dark .h { height: 64px; }
+  .marks { display: flex; align-items: flex-end; gap: 22px; }
+  .marks img { display: block; }
+  .tag { position: absolute; left: 20px; top: 16px; font-size: 13px; color: var(--gray-600); letter-spacing: .04em; }
+  .logo-dark .tag { color: var(--frost-300); }
+
+  /* 02 copy */
+  .copy { text-align: center; padding: 8px 0 8px; }
+  .copy h1 { margin: 0; font-size: 68px; font-weight: 700; letter-spacing: .04em; line-height: 1.2; }
+  .copy p { margin: 18px 0 0; font-size: 20px; color: var(--gray-600); letter-spacing: .06em; }
+
+  /* 03 problems, 04 scenes */
+  .grid3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 24px; }
+  .grid4 { display: grid; grid-template-columns: repeat(4, 1fr); gap: 24px; }
+  .pic { padding: 28px 24px 30px; display: flex; flex-direction: column; align-items: center; gap: 18px; text-align: center; }
+  .pic svg { display: block; }
+  .pic h3 { margin: 0; font-size: 23px; font-weight: 700; line-height: 1.45; letter-spacing: .02em; }
+  .pic small { display: block; margin-top: 6px; font-size: 14px; font-weight: 500; color: var(--gray-600); letter-spacing: .03em; }
+  .problem { background: #FFFBF4; border-color: #F1DEC0; }
+
+  /* 05 features */
+  .flow { display: grid; grid-template-columns: repeat(5, 1fr); gap: 0; align-items: stretch; }
+  .step { position: relative; padding: 26px 22px 24px; margin-right: 34px; display: flex; flex-direction: column; gap: 14px; }
+  .step:last-child { margin-right: 0; }
+  .step:not(:last-child)::after { content: ""; position: absolute; right: -27px; top: 50%; width: 20px; height: 20px; transform: translateY(-50%);
+    background: no-repeat center/20px url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 20 20'%3E%3Cpath d='M3 10h12M10 4.5L15.5 10L10 15.5' fill='none' stroke='%231E9E82' stroke-width='2.6' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E"); }
+  .step .n { font-size: 13px; font-weight: 700; color: var(--green-700); letter-spacing: .08em; }
+  .step h3 { margin: 0; font-size: 22px; font-weight: 700; letter-spacing: .02em; }
+  .step p { margin: 0; font-size: 14px; line-height: 1.5; color: var(--gray-600); }
+  .base { margin-top: 18px; display: flex; align-items: center; gap: 18px; padding: 18px 24px; background: var(--teal); border-color: var(--teal); color: var(--white); }
+  .base h3 { margin: 0; font-size: 21px; font-weight: 700; letter-spacing: .02em; }
+  .base p { margin: 0; font-size: 14px; color: #CFE7E3; }
+  .base .sp { flex: 1; }
+
+  /* 06 PWA */
+  .pwa { display: grid; grid-template-columns: 1.1fr 1fr 1.2fr; gap: 24px; }
+  .pwa .card { padding: 28px; display: flex; align-items: center; justify-content: center; gap: 28px; min-height: 300px; position: relative; }
+  .pwa figure { margin: 0; display: flex; flex-direction: column; align-items: center; gap: 12px; font-size: 13px; color: var(--gray-600); }
+  .mask { width: 160px; height: 160px; border-radius: 50%; overflow: hidden; outline: 2px dashed var(--gray-300); outline-offset: 6px; }
+  .mask img { width: 160px; height: 160px; display: block; }
+  .phone { width: 196px; height: 260px; border-radius: 30px 30px 0 0; background: linear-gradient(160deg, #163A44, #0A161B); padding: 26px 18px 0; display: grid;
+    grid-template-columns: repeat(3, 1fr); gap: 14px 12px; align-content: start; }
+  .phone i { display: block; width: 46px; height: 46px; border-radius: 12px; background: rgba(234, 245, 243, .14); justify-self: center; }
+  .phone .app { display: flex; flex-direction: column; align-items: center; gap: 5px; font-size: 10px; color: var(--frost); font-style: normal; background: none; width: auto; height: auto; }
+  .phone .app img { width: 46px; height: 46px; display: block; }
+  .tab { width: 100%; max-width: 360px; }
+  .tabbar { display: flex; align-items: flex-end; gap: 0; background: #DEE3E6; border-radius: 12px 12px 0 0; padding: 8px 8px 0; }
+  .tabbar .t { display: flex; align-items: center; gap: 8px; background: var(--white); border-radius: 9px 9px 0 0; padding: 9px 14px; font-size: 13px; color: var(--ink); }
+  .tabbar .t img { width: 16px; height: 16px; display: block; }
+  .tabbar.dark { background: #202124; margin-top: 18px; }
+  .tabbar.dark .t { background: #35363A; color: #E8EAED; }
+  .sizes { display: flex; align-items: flex-end; gap: 18px; margin-top: 22px; color: var(--gray-600); font-size: 12px; }
+  .sizes figure { gap: 8px; }
+  .favcol { display: flex; flex-direction: column; align-items: stretch; }
+
+  .foot { display: flex; flex-direction: column; align-items: flex-start; gap: 14px; padding-top: 4px; font-size: 13px; color: var(--gray-600); }
+  .chips { display: flex; gap: 8px; }
+  .chips div { display: flex; align-items: center; gap: 8px; white-space: nowrap; padding: 6px 14px 6px 6px; background: var(--white); border: 1px solid var(--gray-300); border-radius: 999px; font-variant-numeric: tabular-nums; }
+  .chips i { width: 22px; height: 22px; border-radius: 50%; display: block; border: 1px solid rgba(0,0,0,.08); }
+</style>
+</head>
+<body>
+<!-- shared pictogram parts -->
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <defs>
+    <!-- person silhouette, origin = bottom centre, 34 tall -->
+    <symbol id="person" viewBox="-14 -34 28 34" overflow="visible">
+      <circle cx="0" cy="-25" r="8"/>
+      <path d="M-14 0V-3.5A14 12 0 0 1 14 -3.5V0Z"/>
+    </symbol>
+  </defs>
+</svg>
+
+<div class="board">
+  <div class="top"><div><b>MeetLedger</b>　Brand Board</div><div>AI会議・決定・約束・フォローアップ管理 ／ v1.0 · 2026-10</div></div>
+
+  <!-- 01 LOGO -->
+  <section>
+    <h2 class="label"><span>01</span>ロゴ</h2>
+    <div class="logo-row">
+      <div class="card logo-light"><span class="tag">Primary · on light</span><img src="logo-horizontal.svg" alt="MeetLedger"></div>
+      <div class="card logo-dark"><span class="tag">on dark</span>
+        <img class="h" src="logo-horizontal-dark.svg" alt="MeetLedger">
+        <div class="marks">
+          <img src="app-icon.svg" width="64" height="64" alt="">
+          <img src="app-icon.svg" width="48" height="48" alt="">
+          <img src="app-icon.svg" width="32" height="32" alt="">
+          <img src="favicon.svg" width="16" height="16" alt="">
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 02 COPY -->
+  <section>
+    <h2 class="label"><span>02</span>コピー</h2>
+    <div class="copy"><h1>会議しただけで終わらせない。</h1>
+    <p>“誰がやるんだっけ？” をなくす。　決まったことを、次の会議まで忘れない。</p></div>
+  </section>
+
+  <!-- 03 PROBLEMS -->
+  <section>
+    <h2 class="label"><span>03</span>困りごと</h2>
+    <div class="grid3">
+      <div class="card pic problem">
+        <svg width="132" height="132" viewBox="0 0 96 96" aria-hidden="true">
+          <path d="M30 14H66A8 8 0 0 1 74 22V36A8 8 0 0 1 66 44H54L48 51L42 44H30A8 8 0 0 1 22 36V22A8 8 0 0 1 30 14Z" fill="#fff" stroke="#0F4C5C" stroke-width="3.5" stroke-linejoin="round"/>
+          <path d="M43.2 24.6A5 5 0 1 1 50.6 29C49 30 48 31 48 33" fill="none" stroke="#E3A33B" stroke-width="3.6" stroke-linecap="round"/>
+          <circle cx="48" cy="38.2" r="2.3" fill="#E3A33B"/>
+          <use href="#person" x="17" y="56" width="28" height="34" fill="#0F4C5C"/>
+          <use href="#person" x="51" y="56" width="28" height="34" fill="#9CC5C0"/>
+          <path d="M14 90H82" stroke="#C2CFD2" stroke-width="3" stroke-linecap="round"/>
+        </svg>
+        <h3>“誰がやるんだっけ？”</h3>
+      </div>
+      <div class="card pic problem">
+        <svg width="132" height="132" viewBox="0 0 96 96" aria-hidden="true">
+          <rect x="22" y="12" width="52" height="72" rx="8" fill="#fff" stroke="#0F4C5C" stroke-width="3.5"/>
+          <rect x="31" y="25" width="10" height="10" rx="2.5" fill="none" stroke="#1E9E82" stroke-width="3"/>
+          <path d="M33.5 30L35.5 32L39 27.5" fill="none" stroke="#1E9E82" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/>
+          <path d="M47 30H64" stroke="#0F4C5C" stroke-width="3.5" stroke-linecap="round"/>
+          <g opacity=".45"><rect x="31" y="43" width="10" height="10" rx="2.5" fill="none" stroke="#0F4C5C" stroke-width="3" stroke-dasharray="4 3"/>
+            <path d="M47 48H64" stroke="#0F4C5C" stroke-width="3.5" stroke-linecap="round" stroke-dasharray="6 5"/></g>
+          <g opacity=".18"><rect x="31" y="61" width="10" height="10" rx="2.5" fill="none" stroke="#0F4C5C" stroke-width="3" stroke-dasharray="4 3"/>
+            <path d="M47 66H58" stroke="#0F4C5C" stroke-width="3.5" stroke-linecap="round" stroke-dasharray="6 5"/></g>
+          <circle cx="74" cy="78" r="11" fill="#E3A33B"/>
+          <path d="M69.5 78H78.5" stroke="#fff" stroke-width="3.2" stroke-linecap="round"/>
+        </svg>
+        <h3>決まったことが、<br>次の会議で消えている</h3>
+      </div>
+      <div class="card pic problem">
+        <svg width="132" height="132" viewBox="0 0 96 96" aria-hidden="true">
+          <rect x="14" y="22" width="56" height="58" rx="8" fill="#fff" stroke="#0F4C5C" stroke-width="3.5"/>
+          <path d="M14 36H70" stroke="#0F4C5C" stroke-width="3.5"/>
+          <path d="M28 15V27M56 15V27" stroke="#0F4C5C" stroke-width="3.5" stroke-linecap="round"/>
+          <g fill="#C2CFD2"><rect x="23" y="44" width="8" height="8" rx="2"/><rect x="38" y="44" width="8" height="8" rx="2"/><rect x="53" y="44" width="8" height="8" rx="2"/>
+            <rect x="38" y="60" width="8" height="8" rx="2"/><rect x="53" y="60" width="8" height="8" rx="2"/></g>
+          <rect x="22" y="59" width="10" height="10" rx="2.5" fill="none" stroke="#E3A33B" stroke-width="2.6" stroke-dasharray="3.5 2.5"/>
+          <path d="M60 10H80A6 6 0 0 1 86 16V28A6 6 0 0 1 80 34H72L66 39.5V34H60A6 6 0 0 1 54 28V16A6 6 0 0 1 60 10Z" fill="#E3A33B"/>
+          <path d="M66.6 18.2A3.6 3.6 0 1 1 71.8 21.4C70.8 22 70 22.8 70 24.2" fill="none" stroke="#fff" stroke-width="2.8" stroke-linecap="round"/>
+          <circle cx="70" cy="28.3" r="1.8" fill="#fff"/>
+        </svg>
+        <h3>“前回何を話したっけ？”<br>から始まる</h3>
+      </div>
+    </div>
+  </section>
+
+  <!-- 04 SCENES -->
+  <section>
+    <h2 class="label"><span>04</span>利用シーン</h2>
+    <div class="grid4">
+      <div class="card pic">
+        <svg width="176" height="132" viewBox="0 0 128 96" aria-hidden="true">
+          <use href="#person" x="16" y="34" width="26" height="32" fill="#0F4C5C"/>
+          <use href="#person" x="38" y="34" width="26" height="32" fill="#0F4C5C"/>
+          <use href="#person" x="66" y="34" width="26" height="32" fill="#3D4FA0"/>
+          <use href="#person" x="88" y="34" width="26" height="32" fill="#3D4FA0"/>
+          <rect x="10" y="66" width="108" height="10" rx="5" fill="#EAF4F3" stroke="#0F4C5C" stroke-width="3"/>
+          <path d="M64 30V80" stroke="#C2CFD2" stroke-width="2" stroke-dasharray="3 4"/>
+          <path d="M52 8H76A6 6 0 0 1 82 14V22A6 6 0 0 1 76 28H67L63 32V28H52A6 6 0 0 1 46 22V14A6 6 0 0 1 52 8Z" fill="#fff" stroke="#0F4C5C" stroke-width="2.8" stroke-linejoin="round"/>
+          <path d="M57 18L61.5 22L71 13.5" fill="none" stroke="#1E9E82" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>
+        <h3>クライアント定例<small>Client sync</small></h3>
+      </div>
+      <div class="card pic">
+        <svg width="176" height="132" viewBox="0 0 128 96" aria-hidden="true">
+          <use href="#person" x="20" y="30" width="24" height="30" fill="#9CC5C0"/>
+          <use href="#person" x="41" y="26" width="24" height="30" fill="#0F4C5C"/>
+          <use href="#person" x="63" y="26" width="24" height="30" fill="#9CC5C0"/>
+          <use href="#person" x="84" y="30" width="24" height="30" fill="#0F4C5C"/>
+          <ellipse cx="64" cy="68" rx="52" ry="13" fill="#EAF4F3" stroke="#0F4C5C" stroke-width="3"/>
+          <g transform="translate(103 13)">
+            <circle r="11" fill="#fff" stroke="#1E9E82" stroke-width="2.8"/>
+            <path d="M-5 -1.5A5.5 5.5 0 0 1 4.5 -3.5M5 1.5A5.5 5.5 0 0 1 -4.5 3.5" fill="none" stroke="#1E9E82" stroke-width="2.4" stroke-linecap="round"/>
+            <path d="M4.6 -7V-3.3H0.9M-4.6 7V3.3H-0.9" fill="none" stroke="#1E9E82" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/>
+          </g>
+        </svg>
+        <h3>社内定例<small>Team weekly</small></h3>
+      </div>
+      <div class="card pic">
+        <svg width="176" height="132" viewBox="0 0 128 96" aria-hidden="true">
+          <use href="#person" x="20" y="38" width="34" height="42" fill="#0F4C5C"/>
+          <use href="#person" x="74" y="38" width="34" height="42" fill="#9CC5C0"/>
+          <path d="M14 80H114" stroke="#C2CFD2" stroke-width="3" stroke-linecap="round"/>
+          <path d="M44 10H60A5 5 0 0 1 65 15V22A5 5 0 0 1 60 27H52L48 31V27H44A5 5 0 0 1 39 22V15A5 5 0 0 1 44 10Z" fill="#0F4C5C"/>
+          <path d="M68 18H84A5 5 0 0 1 89 23V30A5 5 0 0 1 84 35H80V39L76 35H68A5 5 0 0 1 63 30V23A5 5 0 0 1 68 18Z" fill="#fff" stroke="#0F4C5C" stroke-width="2.8" stroke-linejoin="round"/>
+          <path d="M45 18.5H58" stroke="#5FD4BC" stroke-width="2.8" stroke-linecap="round"/>
+          <path d="M70 26.5H82" stroke="#1E9E82" stroke-width="2.8" stroke-linecap="round"/>
+        </svg>
+        <h3>1on1<small>One-on-one</small></h3>
+      </div>
+      <div class="card pic">
+        <svg width="176" height="132" viewBox="0 0 128 96" aria-hidden="true">
+          <use href="#person" x="12" y="30" width="30" height="38" fill="#0F4C5C"/>
+          <use href="#person" x="86" y="30" width="30" height="38" fill="#3D4FA0"/>
+          <rect x="6" y="68" width="116" height="10" rx="5" fill="#EAF4F3" stroke="#0F4C5C" stroke-width="3"/>
+          <rect x="47" y="30" width="34" height="38" rx="5" fill="#fff" stroke="#0F4C5C" stroke-width="3"/>
+          <path d="M55 60V53M62.5 60V46M70 60V50" stroke="#1E9E82" stroke-width="3.6" stroke-linecap="round"/>
+          <path d="M54 39H74" stroke="#0F4C5C" stroke-width="2.6" stroke-linecap="round"/>
+          <g transform="translate(83 24)">
+            <circle r="10" fill="#E3A33B"/>
+            <path d="M-4 -5.5L0 0L4 -5.5M0 0V6M-3.8 0.2H3.8M-3.8 3.4H3.8" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+          </g>
+        </svg>
+        <h3>営業商談<small>Sales call</small></h3>
+      </div>
+    </div>
+  </section>
+
+  <!-- 05 FEATURES -->
+  <section>
+    <h2 class="label"><span>05</span>主要機能</h2>
+    <div class="flow">
+      <div class="card step">
+        <svg width="56" height="56" viewBox="0 0 48 48" aria-hidden="true">
+          <path d="M14 8H34A8 8 0 0 1 42 16V26A8 8 0 0 1 34 34H22L14 41V34A8 8 0 0 1 6 26V16A8 8 0 0 1 14 8Z" fill="#EAF4F3" stroke="#0F4C5C" stroke-width="2.8" stroke-linejoin="round"/>
+          <path d="M14 18V24M19 15V27M24 13V29M29 16V26M34 19V23" stroke="#1E9E82" stroke-width="2.8" stroke-linecap="round"/>
+        </svg>
+        <div class="n">STEP 1</div><h3>会議を記録</h3><p>Transcription<br>Speaker Diarization</p>
+      </div>
+      <div class="card step">
+        <svg width="56" height="56" viewBox="0 0 48 48" aria-hidden="true">
+          <rect x="8" y="5" width="30" height="38" rx="5" fill="#EAF4F3" stroke="#0F4C5C" stroke-width="2.8"/>
+          <path d="M15 5V43" stroke="#0F4C5C" stroke-width="2.2"/>
+          <path d="M21 15H31M21 22H28" stroke="#0F4C5C" stroke-width="2.8" stroke-linecap="round"/>
+          <circle cx="35" cy="34" r="9" fill="#1E9E82"/>
+          <path d="M31 34.2L34 37L39.2 31.4" fill="none" stroke="#fff" stroke-width="2.8" stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>
+        <div class="n">STEP 2</div><h3>決まったこと</h3><p>Decision Ledger</p>
+      </div>
+      <div class="card step">
+        <svg width="56" height="56" viewBox="0 0 48 48" aria-hidden="true">
+          <rect x="4" y="9" width="40" height="30" rx="6" fill="#EAF4F3" stroke="#0F4C5C" stroke-width="2.8"/>
+          <circle cx="14" cy="20" r="3.6" fill="#0F4C5C"/>
+          <path d="M8.5 31A5.5 5 0 0 1 19.5 31Z" fill="#0F4C5C"/>
+          <path d="M24 19H33M24 26H29" stroke="#0F4C5C" stroke-width="2.8" stroke-linecap="round"/>
+          <circle cx="37" cy="35" r="8" fill="#fff" stroke="#E3A33B" stroke-width="2.8"/>
+          <path d="M37 31.5V35L39.5 37" fill="none" stroke="#E3A33B" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>
+        <div class="n">STEP 3</div><h3>やること・約束</h3><p>Commitment Tracking<br>担当・期限</p>
+      </div>
+      <div class="card step">
+        <svg width="56" height="56" viewBox="0 0 48 48" aria-hidden="true">
+          <rect x="5" y="9" width="32" height="32" rx="6" fill="#EAF4F3" stroke="#0F4C5C" stroke-width="2.8"/>
+          <path d="M5 18H37M13 5V12M29 5V12" stroke="#0F4C5C" stroke-width="2.8" stroke-linecap="round"/>
+          <path d="M12 26H22M12 33H18" stroke="#0F4C5C" stroke-width="2.6" stroke-linecap="round"/>
+          <circle cx="36" cy="34" r="9" fill="#1E9E82"/>
+          <path d="M32 34H39.5M36.5 30.5L40 34L36.5 37.5" fill="none" stroke="#fff" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>
+        <div class="n">STEP 4</div><h3>次回準備</h3><p>Next-meeting Brief<br>前回の決定・未完了</p>
+      </div>
+      <div class="card step">
+        <svg width="56" height="56" viewBox="0 0 48 48" aria-hidden="true">
+          <circle cx="20" cy="21" r="12" fill="#EAF4F3" stroke="#0F4C5C" stroke-width="2.8"/>
+          <path d="M29 30L40 41" stroke="#0F4C5C" stroke-width="3.6" stroke-linecap="round"/>
+          <path d="M20 13.5C20.7 17.6 22.4 19.3 26.5 20C22.4 20.7 20.7 22.4 20 26.5C19.3 22.4 17.6 20.7 13.5 20C17.6 19.3 19.3 17.6 20 13.5Z" fill="#1E9E82"/>
+          <path d="M38 5C38.4 7.2 39.3 8.1 41.5 8.5C39.3 8.9 38.4 9.8 38 12C37.6 9.8 36.7 8.9 34.5 8.5C36.7 8.1 37.6 7.2 38 5Z" fill="#5FD4BC"/>
+        </svg>
+        <div class="n">STEP 5</div><h3>検索・AIに聞く</h3><p>Semantic Search<br>MCP</p>
+      </div>
+    </div>
+    <div class="card base">
+      <svg width="44" height="44" viewBox="0 0 48 48" aria-hidden="true">
+        <path d="M24 4L40 10V22C40 32 33 40 24 44C15 40 8 32 8 22V10Z" fill="none" stroke="#5FD4BC" stroke-width="3" stroke-linejoin="round"/>
+        <rect x="16.5" y="22" width="15" height="11" rx="2.5" fill="#5FD4BC"/>
+        <path d="M19.5 22V19A4.5 4.5 0 0 1 28.5 19V22" fill="none" stroke="#5FD4BC" stroke-width="2.8"/>
+      </svg>
+      <h3>プライバシー・Local mode</h3>
+      <div class="sp"></div>
+      <p>Local ASR（端末内で文字起こし）　·　Consent Log（録音の同意記録）　·　AI Privacy Preview（送信内容の事前表示）</p>
+    </div>
+  </section>
+
+  <!-- 06 PWA ICON -->
+  <section>
+    <h2 class="label"><span>06</span>PWAアイコン</h2>
+    <div class="pwa">
+      <div class="card">
+        <figure><img src="app-icon.svg" width="160" height="160" alt="">icon-512 · any</figure>
+        <figure><div class="mask"><img src="app-icon-maskable.svg" alt=""></div>maskable · safe zone 80%</figure>
+      </div>
+      <div class="card" style="align-items:flex-end;padding-bottom:0">
+        <div class="phone">
+          <i></i><i></i><i></i>
+          <i></i><span class="app"><img src="app-icon.svg" alt="">MeetLedger</span><i></i>
+          <i></i><i></i><i></i>
+        </div>
+      </div>
+      <div class="card favcol">
+        <div class="tab">
+          <div class="tabbar"><div class="t"><img src="favicon.svg" alt="">MeetLedger</div></div>
+          <div class="tabbar dark"><div class="t"><img src="favicon.svg" alt="">MeetLedger</div></div>
+          <div class="sizes">
+            <figure><img src="favicon.svg" width="16" height="16" alt="">16</figure>
+            <figure><img src="app-icon.svg" width="32" height="32" alt="">32</figure>
+            <figure><img src="app-icon.svg" width="48" height="48" alt="">48</figure>
+            <figure><img src="app-icon.svg" width="64" height="64" alt="">64</figure>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <div class="foot">
+    <div class="chips">
+      <div><i style="background:#0F4C5C"></i>Ledger Teal #0F4C5C</div>
+      <div><i style="background:#0B2A33"></i>Ink #0B2A33</div>
+      <div><i style="background:#1E9E82"></i>Commit Green #1E9E82</div>
+      <div><i style="background:#5FD4BC"></i>Mint #5FD4BC</div>
+      <div><i style="background:#3D4FA0"></i>Indigo #3D4FA0</div>
+      <div><i style="background:#F6F9F9"></i>Paper #F6F9F9</div>
+    </div>
+    <div>Wordmark: Inter Display SemiBold (SIL OFL 1.1) outlined · UI: system font stack</div>
+  </div>
+</div>
+</body>
+</html>

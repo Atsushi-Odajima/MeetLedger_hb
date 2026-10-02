@@ -8,6 +8,8 @@ export interface TranscriptionInput {
   stereoPath?: string | null;
   durationMs: number;
   language: 'ja' | 'en' | 'auto';
+  /** Scratch directory owned by the job (deleted afterwards). Providers may write derived files here. */
+  workDir?: string;
 }
 
 export interface RawSegment {
@@ -28,6 +30,8 @@ export interface TranscriptionResult {
   segments: RawSegment[];
   /** Whether segments carry provider diarization. */
   diarization: 'provider' | 'none';
+  /** Non-content notes for quality flags (e.g. diarization unavailable). */
+  notes?: string[];
 }
 
 export interface TranscriptionCallCtx {
@@ -42,4 +46,9 @@ export interface TranscriptionProvider {
   isLocal: boolean;
   available(): Promise<{ ok: boolean; reason?: string }>;
   transcribe(input: TranscriptionInput, call: TranscriptionCallCtx): Promise<TranscriptionResult>;
+}
+
+/** Error that must not be retried (bad credentials, unsupported input, policy). Recognized by the job worker. */
+export class PermanentTranscriptionError extends Error {
+  readonly permanent = true;
 }
