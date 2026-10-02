@@ -149,7 +149,9 @@ function Commitments() {
   const { t } = useI18n();
   const toast = useToast();
   const { a, can } = useWs();
-  const [direction, setDirection] = useState<'all' | 'mine' | 'theirs'>('all');
+  const [params] = useSearchParams();
+  const initialDir = params.get('direction');
+  const [direction, setDirection] = useState<'all' | 'mine' | 'theirs'>(initialDir === 'mine' || initialDir === 'theirs' ? initialDir : 'all');
   const [status, setStatus] = useState('open');
   const state = useApi<unknown>(a(`/commitments${qs({ direction, status })}`));
   const update = async (c: CommitmentDto, s: string) => {

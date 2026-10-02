@@ -216,7 +216,7 @@ export default async function audioRoutes(app: FastifyInstance, deps: Deps) {
     const ctx = await workspaceCtx(deps, req, loc.workspace_id);
     const asset = await ctx.tx(async (db) => {
       const m: any = await loadMeeting(db, ctx, loc.meeting_id, 'read');
-      const a = await one<any>(db, 'SELECT id, storage_key, mime, deleted_at, kind FROM media_assets WHERE id=$1 AND meeting_id=$2', [assetId, m.id]);
+      const a = await one<any>(db, 'SELECT id, storage_key, mime, deleted_at, kind, size_bytes FROM media_assets WHERE id=$1 AND meeting_id=$2', [assetId, m.id]);
       if (!a || !isPlayable(m, a)) return null;
       await audit(db, { orgId: ctx.orgId, workspaceId: ctx.workspaceId, userId: ctx.userId, action: 'media.accessed', entityType: 'media_asset', entityId: assetId, ip: req.ip });
       return a;
@@ -227,8 +227,20 @@ export default async function audioRoutes(app: FastifyInstance, deps: Deps) {
       .header('content-type', asset.mime)
       .header('cache-control', 'private, no-store')
       .header('content-disposition', 'inline')
-      .header('accept-ranges', 'none')
+      .header('accept-ranges', 'bytes')
       .header('x-content-type-options', 'nosniff');
+    // Byte ranges (audio seeking): objects are AES-GCM encrypted, so we decrypt sequentially and emit only the range.
+    const size = Number(asset.size_bytes);
+    const range = parseRange(req.headers.range, size);
+    if (range === 'invalid') {
+      stream.destroy();
+      return reply.status(416).header('content-range', `bytes */${size}`).send();
+    }
+    if (range) {
+      reply.status(206).header('content-range', `bytes ${range.start}-${range.end}/${size}`).header('content-length', String(range.end - range.start + 1));
+      return reply.send(stream.pipe(sliceStream(range.start, range.end)));
+    }
+    if (size > 0) reply.header('content-length', String(size));
     return reply.send(stream);
   });
 
@@ -515,5 +527,38 @@ export default async function audioRoutes(app: FastifyInstance, deps: Deps) {
       const list = await rows(db, 'SELECT ms.*, p.name AS person_name FROM meeting_speakers ms LEFT JOIN people p ON p.id = ms.person_id AND p.deleted_at IS NULL WHERE ms.meeting_id=$1 ORDER BY ms.label', [id]);
       return { items: list.map(speakerDto) };
     });
+  });
+}
+
+/** Parses a single "bytes=a-b" / "bytes=a-" / "bytes=-n" range. Multi-range requests are served in full (null). */
+export function parseRange(header: string | undefined, size: number): { start: number; end: number } | null | 'invalid' {
+  if (!header || !size) return null;
+  const m = /^bytes=(\d*)-(\d*)$/.exec(header.trim());
+  if (!m) return null;
+  let start: number;
+  let end: number;
+  if (m[1] === '' && m[2] === '') return 'invalid';
+  if (m[1] === '') {
+    start = Math.max(0, size - Number(m[2]));
+    end = size - 1;
+  } else {
+    start = Number(m[1]);
+    end = m[2] === '' ? size - 1 : Math.min(Number(m[2]), size - 1);
+  }
+  if (start > end || start >= size) return 'invalid';
+  return { start, end };
+}
+
+function sliceStream(start: number, end: number): Transform {
+  let pos = 0;
+  return new Transform({
+    transform(chunk: Buffer, _e, cb) {
+      const from = Math.max(0, start - pos);
+      const to = Math.min(chunk.length, end - pos + 1);
+      pos += chunk.length;
+      if (to > from) this.push(chunk.subarray(from, to));
+      if (pos > end) this.push(null);
+      cb();
+    },
   });
 }

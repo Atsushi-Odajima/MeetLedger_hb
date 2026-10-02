@@ -10,7 +10,7 @@ import { uploadWithProgress } from '../../lib/upload';
 import type { DeletionRequestDto } from '../../lib/types';
 
 function FullExport() {
-  const { t } = useI18n();
+  const { t, tm } = useI18n();
   const toast = useToast();
   const { a, can } = useWs();
   const [includeMedia, setIncludeMedia] = useState(false);
@@ -28,7 +28,7 @@ function FullExport() {
         try {
           const s = await api.get<{ status: string; url?: string | null }>(a(`/export/full/${r.jobId}`));
           setJob({ jobId: r.jobId, ...s });
-          if (s.url || s.status === 'failed' || s.status === 'done' || s.status === 'completed') {
+          if (s.url || ['ready', 'failed', 'expired', 'done', 'completed'].includes(s.status)) {
             if (timer.current) clearInterval(timer.current);
           }
         } catch {
@@ -44,12 +44,12 @@ function FullExport() {
     <Card title={t('data.fullExport')}>
       <p className="field-hint">{t('data.fullExportHint')}</p>
       <Checkbox label={t('data.includeMedia')} hint={t('data.includeMediaHint')} checked={includeMedia} onChange={(e) => setIncludeMedia(e.target.checked)} />
-      <Button icon="download" onClick={start} disabled={!!job && !job.url && job.status !== 'failed'}>
+      <Button icon="download" onClick={start} disabled={!!job && !job.url && !['failed', 'expired'].includes(job.status)}>
         {t('data.startExport')}
       </Button>
       {job && (
         <p aria-live="polite">
-          {t('data.exportStatus')}: <Badge>{job.status}</Badge>{' '}
+          {t('data.exportStatus')}: <Badge tone={job.status === 'ready' ? 'success' : job.status === 'failed' ? 'danger' : 'info'}>{tm(`exportStatus.${job.status}`, job.status)}</Badge>{' '}
           {job.url && (
             <a href={job.url} className="btn btn-sm btn-primary" download>
               <Icon name="download" size={16} />
@@ -116,11 +116,16 @@ function DeletionRequests() {
               {items.map((x) => (
                 <li key={x.id} className="item">
                   <div className="item-main">
-                    <span className="item-title">{tm(`deletionScope.${x.scope ?? x.kind ?? ''}`, x.scope ?? x.kind ?? x.entityType ?? '')}</span>
+                    <span className="item-title">
+                      {tm(`deletionScope.${x.scope ?? x.kind ?? ''}`, x.scope ?? x.kind ?? x.entityType ?? '')}
+                      {x.targetLabel && <span className="muted"> — {x.targetLabel}</span>}
+                    </span>
                     <span className="item-meta">
                       <Badge tone={x.status === 'done' || x.status === 'completed' ? 'success' : 'neutral'}>{tm(`deletionStatus.${x.status}`, x.status)}</Badge>
                       {x.createdAt && <span>{fmt.dateTime(x.createdAt)}</span>}
                       {x.completedAt && <span>→ {fmt.dateTime(x.completedAt)}</span>}
+                      {x.trigger && <span>{tm(`deletionTrigger.${x.trigger}`, x.trigger)}</span>}
+                      {x.requestedBy?.name && <span>{x.requestedBy.name}</span>}
                     </span>
                   </div>
                 </li>

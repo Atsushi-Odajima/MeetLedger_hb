@@ -251,7 +251,8 @@ function NotificationsBell() {
   const { t } = useI18n();
   const { p } = useWs();
   const state = useApi<unknown>('/api/notifications?unread=1', { pollMs: 60000, keepPrevious: true });
-  const n = listOf<NotificationDto>(state.data, 'notifications').length;
+  const data = state.data as { unreadCount?: number } | undefined;
+  const n = typeof data?.unreadCount === 'number' ? data.unreadCount : listOf<NotificationDto>(state.data, 'notifications').length;
   return (
     <Link to={p('/notifications')} className="icon-btn bell" aria-label={n ? t('notif.bellUnread', { n }) : t('nav.notifications')} title={t('nav.notifications')}>
       <Icon name="bell" />

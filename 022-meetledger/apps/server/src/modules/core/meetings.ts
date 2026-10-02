@@ -9,6 +9,7 @@ import { loadMeeting, meetingVisibleSql, workspaceCtx } from '../../rbac/access'
 import { audit } from '../../lib/audit';
 import { decideAi, decideTranscription, wsSettings } from '../../privacy/policy';
 import { meetingDto } from './mappers';
+import { emitWebhookEvent } from '../connectors/webhooks';
 
 const zParticipant = z.object({
   personId: z.string().uuid().optional(),
@@ -156,6 +157,7 @@ export async function createMeeting(db: Db, ctx: WsCtx, input: z.infer<typeof cr
   await setParticipants(db, ctx, m.id, input.participants);
   await setAccess(db, ctx, m.id, input.accessUserIds);
   await audit(db, { orgId: ctx.orgId, workspaceId: ctx.workspaceId, userId: ctx.userId, action: 'meeting.created', entityType: 'meeting', entityId: m.id, meta: { source: input.source } });
+  if (m.visibility === 'workspace') await emitWebhookEvent(db, ctx.deps, { orgId: ctx.orgId, workspaceId: ctx.workspaceId }, 'meeting.created', { meetingId: m.id }, `meeting.created:${m.id}`);
   await deps_enqueueIndex(ctx, db, m.id);
   return m;
 }

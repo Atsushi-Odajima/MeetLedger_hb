@@ -194,6 +194,8 @@ export function flattenGrouped<T>(g: Grouped<T> | undefined | null): T[] {
 export interface NotificationDto {
   id: string;
   kind: string;
+  orgName?: string | null;
+  items?: { id: string; kind: string; title: string; link?: string | null }[];
   title: string;
   body?: string | null;
   link?: string | null;
@@ -204,13 +206,14 @@ export interface NotificationDto {
 }
 
 export interface NotificationPrefsDto {
-  quietHoursStart?: string | null;
-  quietHoursEnd?: string | null;
   timezone?: string | null;
+  timezoneSource?: 'notification_settings' | 'profile';
+  quietStart?: string | null;
+  quietEnd?: string | null;
   emailEnabled?: boolean;
   maxPerHour?: number | null;
-  briefLeadMinutes?: number | null;
-  [k: string]: unknown;
+  briefLeadMin?: number | null;
+  emailDriver?: string;
 }
 
 export interface FollowupListItem {
@@ -241,6 +244,10 @@ export interface SearchHit {
   snippet: string;
   title?: string | null;
   score?: number;
+  speaker?: string | null;
+  aiGenerated?: boolean;
+  occurredAt?: string | null;
+  citation?: { meetingTitle?: string | null; meetingDate?: string | null; startMs?: number | null; endMs?: number | null; snippet?: string } | null;
 }
 
 export interface ConnectorDto {
@@ -303,6 +310,9 @@ export interface WebhookDto {
 export interface DeletionRequestDto {
   id: string;
   scope?: string;
+  targetLabel?: string | null;
+  trigger?: 'user' | 'retention' | string;
+  requestedBy?: { id: string; name: string | null } | null;
   kind?: string;
   entityType?: string;
   entityId?: string;
@@ -314,7 +324,10 @@ export interface DeletionRequestDto {
 
 export interface AgendaItemDto {
   id: string;
-  title: string;
+  text?: string;
+  sourceType?: string;
+  sourceId?: string | null;
+  title?: string;
   notes?: string | null;
   status?: string;
   source?: string;

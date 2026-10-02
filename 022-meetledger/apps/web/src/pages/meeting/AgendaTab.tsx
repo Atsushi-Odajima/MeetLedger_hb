@@ -1,5 +1,4 @@
 import { useState, type FormEvent } from 'react';
-import { findBuiltinTemplate } from '@meetledger/shared';
 import { Async, Badge, Button, Card, CandidateBadge, EmptyState, TextField } from '../../components/ui';
 import { useI18n } from '../../i18n';
 import { useWs } from '../../state/workspace';
@@ -9,46 +8,41 @@ import { useApi } from '../../lib/hooks';
 import type { AgendaItemDto } from '../../lib/types';
 import { useMeeting } from './context';
 
+/** Agenda: manual items + suggestions (carry-overs from earlier meetings and template items) that stay candidates until accepted. */
 export function AgendaTab() {
-  const { t } = useI18n();
+  const { t, tm } = useI18n();
   const toast = useToast();
   const { a } = useWs();
   const { meeting, ma } = useMeeting();
   const state = useApi<unknown>(ma('/agenda'));
-  const [title, setTitle] = useState('');
+  const [text, setText] = useState('');
   const [busy, setBusy] = useState(false);
-  const [suggestions, setSuggestions] = useState<AgendaItemDto[]>([]);
-  const tpl = findBuiltinTemplate(meeting.templateKey);
+  const [showRejected, setShowRejected] = useState(false);
 
-  const add = async (text: string, source = 'manual') => {
-    try {
-      await api.post(ma('/agenda'), { title: text, source });
-      state.reload();
-      return true;
-    } catch (e) {
-      toast.error(e);
-      return false;
-    }
-  };
   const submit = async (e: FormEvent) => {
     e.preventDefault();
-    if (await add(title.trim())) setTitle('');
+    try {
+      await api.post(ma('/agenda'), { text: text.trim() });
+      setText('');
+      state.reload();
+    } catch (err) {
+      toast.error(err);
+    }
   };
   const suggest = async () => {
     setBusy(true);
     try {
-      const r = await api.post<unknown>(ma('/agenda/suggest'));
-      const items = listOf<AgendaItemDto>(r, 'suggestions', 'agenda');
-      const existing = new Set(listOf<AgendaItemDto>(state.data, 'agenda').map((x) => x.id));
-      setSuggestions(items.filter((x) => !existing.has(x.id)));
-      state.reload();
+      const r = await api.post<{ created?: number; items?: AgendaItemDto[] }>(ma('/agenda/suggest'));
+      if (r?.items) state.setData(r);
+      else state.reload();
+      toast.info(r?.created ? t('agenda.suggested', { n: r.created }) : t('agenda.noSuggestions'));
     } catch (e) {
       toast.error(e);
     } finally {
       setBusy(false);
     }
   };
-  const patch = async (item: AgendaItemDto, body: Partial<AgendaItemDto>) => {
+  const patch = async (item: AgendaItemDto, body: Record<string, unknown>) => {
     try {
       await api.patch(a(`/agenda/${item.id}`), body);
       state.reload();
@@ -61,37 +55,44 @@ export function AgendaTab() {
     <div className="stack">
       <Async state={state}>
         {(data) => {
-          const items = listOf<AgendaItemDto>(data, 'agenda').sort((x, y) => (x.position ?? 0) - (y.position ?? 0));
+          const all = listOf<AgendaItemDto>(data, 'agenda').sort((x, y) => (x.position ?? 0) - (y.position ?? 0));
+          const items = all.filter((x) => showRejected || x.status !== 'rejected');
+          const rejected = all.length - all.filter((x) => x.status !== 'rejected').length;
           return items.length ? (
-            <Card title={t('agenda.title')}>
+            <Card title={t('agenda.title')} actions={rejected > 0 ? <Button size="sm" variant="ghost" onClick={() => setShowRejected((v) => !v)}>{showRejected ? t('agenda.hideRejected') : t('agenda.showRejected', { n: rejected })}</Button> : undefined}>
               <ol className="items agenda-list">
                 {items.map((it) => {
-                  const candidate = it.reviewState === 'candidate' || it.status === 'suggested';
+                  const label = it.text ?? it.title ?? '';
+                  const candidate = it.status === 'candidate';
+                  const done = it.status === 'done';
                   return (
-                    <li key={it.id} className={`item${candidate ? ' item-candidate' : ''}${it.status === 'done' || it.status === 'covered' ? ' item-done' : ''}`}>
-                      {meeting.canEdit && !candidate && (
+                    <li key={it.id} className={`item${candidate ? ' item-candidate' : ''}${done ? ' item-done' : ''}${it.status === 'rejected' ? ' item-read' : ''}`}>
+                      {meeting.canEdit && !candidate && it.status !== 'rejected' && (
                         <input
                           type="checkbox"
                           className="item-check"
-                          checked={it.status === 'done' || it.status === 'covered'}
-                          onChange={(e) => patch(it, { status: e.target.checked ? 'done' : 'open' })}
-                          aria-label={t('agenda.markDone', { title: it.title })}
+                          checked={done}
+                          onChange={(e) => patch(it, { status: e.target.checked ? 'done' : 'accepted' })}
+                          aria-label={t('agenda.markDone', { title: label })}
                         />
                       )}
                       <div className="item-main">
                         <div className="item-title">
                           {candidate && <CandidateBadge />}
-                          <span>{it.title}</span>
+                          <span className={it.status === 'rejected' ? 'strike' : undefined}>{label}</span>
                         </div>
-                        {it.notes && <p className="item-meta">{it.notes}</p>}
-                        {it.source && it.source !== 'manual' && <Badge>{t('agenda.fromSource', { source: it.source })}</Badge>}
+                        {it.sourceType && it.sourceType !== 'manual' && (
+                          <div className="item-meta">
+                            <Badge>{tm(`agendaSource.${it.sourceType}`, it.sourceType)}</Badge>
+                          </div>
+                        )}
                       </div>
                       {candidate && meeting.canEdit && (
                         <div className="item-side button-row">
-                          <Button size="sm" onClick={() => patch(it, { reviewState: 'confirmed', status: 'open' })}>
+                          <Button size="sm" onClick={() => patch(it, { status: 'accepted' })}>
                             {t('review.accept')}
                           </Button>
-                          <Button size="sm" variant="ghost" onClick={() => patch(it, { reviewState: 'rejected', status: 'dropped' })}>
+                          <Button size="sm" variant="ghost" onClick={() => patch(it, { status: 'rejected' })}>
                             {t('review.reject')}
                           </Button>
                         </div>
@@ -102,34 +103,15 @@ export function AgendaTab() {
               </ol>
             </Card>
           ) : (
-            <EmptyState icon="list" title={t('agenda.empty')} body={tpl?.agenda.length ? t('agenda.templateHint') : undefined} />
+            <EmptyState icon="list" title={t('agenda.empty')} body={meeting.canEdit ? t('agenda.emptyBody') : undefined} />
           );
         }}
       </Async>
-      {suggestions.length > 0 && (
-        <Card title={t('agenda.suggestions')} candidate>
-          <ul className="items">
-            {suggestions.map((s, i) => (
-              <li key={s.id ?? i} className="item item-candidate">
-                <div className="item-main">
-                  <div className="item-title">
-                    <CandidateBadge />
-                    <span>{s.title}</span>
-                  </div>
-                </div>
-                <Button size="sm" onClick={() => add(s.title, 'suggested').then((ok) => ok && setSuggestions((l) => l.filter((x) => x !== s)))}>
-                  {t('common.add')}
-                </Button>
-              </li>
-            ))}
-          </ul>
-        </Card>
-      )}
       {meeting.canEdit && (
         <>
           <form className="inline-form" onSubmit={submit}>
-            <TextField label={t('agenda.add')} value={title} onChange={(e) => setTitle(e.target.value)} maxLength={300} />
-            <Button type="submit" icon="plus" disabled={!title.trim()}>
+            <TextField label={t('agenda.add')} value={text} onChange={(e) => setText(e.target.value)} maxLength={1000} />
+            <Button type="submit" icon="plus" disabled={!text.trim()}>
               {t('common.add')}
             </Button>
           </form>
@@ -137,16 +119,6 @@ export function AgendaTab() {
             <Button icon="sparkle" onClick={suggest} loading={busy}>
               {t('agenda.suggest')}
             </Button>
-            {tpl && tpl.agenda.length > 0 && (
-              <Button
-                variant="ghost"
-                onClick={async () => {
-                  for (const x of tpl.agenda) await add(x, 'template');
-                }}
-              >
-                {t('agenda.fromTemplate', { name: tpl.name })}
-              </Button>
-            )}
           </div>
           <p className="field-hint">{t('agenda.suggestHint')}</p>
         </>

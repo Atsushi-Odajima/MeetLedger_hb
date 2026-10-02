@@ -628,3 +628,15 @@ describe('upload size limit', () => {
     }
   });
 });
+
+describe('media byte ranges (seeking)', () => {
+  it('parseRange handles explicit, open and suffix ranges', async () => {
+    const { parseRange } = await import('../src/modules/audio/routes');
+    expect(parseRange('bytes=0-99', 1000)).toEqual({ start: 0, end: 99 });
+    expect(parseRange('bytes=900-', 1000)).toEqual({ start: 900, end: 999 });
+    expect(parseRange('bytes=-100', 1000)).toEqual({ start: 900, end: 999 });
+    expect(parseRange('bytes=0-5000', 1000)).toEqual({ start: 0, end: 999 });
+    expect(parseRange('bytes=2000-', 1000)).toBe('invalid');
+    expect(parseRange(undefined, 1000)).toBeNull();
+  });
+});

@@ -14,6 +14,7 @@ import { norm } from '../../providers/ai/text';
 import { LEDGER_TYPES, TABLE, TEXT_COL, ledgerEvent, topicKeyOf, type LedgerType } from './common';
 import { contradictionReason } from './contradictions';
 import { validateExtraction, type VParty, type VSource, type ValidatedExtraction } from './validate';
+import { emitWebhookEvent } from '../connectors/webhooks';
 
 interface SpeakerInfo {
   id: string;
@@ -465,6 +466,8 @@ export async function persistExtraction(
 
   const contradictions = await detectContradictions(db, org, ws, m, newDecisions);
   await db.query("UPDATE meetings SET status='needs_review', updated_at=now() WHERE id=$1 AND status NOT IN ('archived','live')", [meetingId]);
+  // ids only — webhook payloads never carry transcript or ledger text.
+  await emitWebhookEvent(db, deps, { orgId: org, workspaceId: ws }, 'meeting.ready', { meetingId, transcriptId: prep.transcriptId, status: 'needs_review' }, `meeting.ready:${meetingId}:${prep.transcriptId}`);
   await deps.jobs.enqueue(db, { orgId: org, type: 'index.meeting', key: `index:${meetingId}:${Date.now()}`, payload: { meetingId } });
   const result: ExtractResult = { provider: providerId, isLocal: provider.isLocal, fallback, counts, dropped: v.stats.dropped, replaced, contradictions };
   await audit(db, {

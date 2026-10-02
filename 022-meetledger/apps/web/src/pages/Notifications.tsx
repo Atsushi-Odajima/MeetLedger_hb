@@ -73,8 +73,17 @@ function List() {
                         )}
                       </div>
                       {n.body && <p className="item-meta">{n.body}</p>}
+                      {n.items && n.items.length > 0 && (
+                        <ul className="plain-list">
+                          {n.items.map((c) => {
+                            const cl = safeLink(c.link);
+                            return <li key={c.id}>{cl ? <Link to={cl}>{c.title}</Link> : c.title}</li>;
+                          })}
+                        </ul>
+                      )}
                       <p className="item-meta">
                         <Badge>{tm(`notifKind.${n.kind}`, n.kind)}</Badge> <span>{fmt.relative(n.createdAt)}</span>
+                        {n.orgName && <span>{n.orgName}</span>}
                       </p>
                     </div>
                     {!n.readAt && (
@@ -114,24 +123,21 @@ function Prefs() {
   const [busy, setBusy] = useState(false);
   const zones = useMemo(timeZones, []);
   useEffect(() => {
-    if (state.data) {
-      const d = (state.data as { prefs?: NotificationPrefsDto }).prefs ?? state.data;
-      setF({
-        quietHoursStart: '22:00',
-        quietHoursEnd: '08:00',
-        timezone: timeZone,
-        emailEnabled: true,
-        maxPerHour: 3,
-        briefLeadMinutes: 30,
-        ...d,
-      });
-    }
+    if (state.data) setF({ quietStart: '22:00', quietEnd: '08:00', timezone: timeZone, emailEnabled: true, maxPerHour: 3, briefLeadMin: 30, ...state.data });
   }, [state.data, timeZone]);
   const save = async () => {
     if (!f) return;
     setBusy(true);
     try {
-      await api.put(a('/notification-prefs'), f);
+      const saved = await api.put<NotificationPrefsDto>(a('/notification-prefs'), {
+        timezone: f.timezone || null,
+        ...(f.quietStart ? { quietStart: f.quietStart } : {}),
+        ...(f.quietEnd ? { quietEnd: f.quietEnd } : {}),
+        emailEnabled: !!f.emailEnabled,
+        ...(f.maxPerHour ? { maxPerHour: Math.max(1, Math.min(60, f.maxPerHour)) } : {}),
+        ...(typeof f.briefLeadMin === 'number' ? { briefLeadMin: Math.max(0, Math.min(1440, f.briefLeadMin)) } : {}),
+      });
+      state.setData(saved);
       toast.success(t('common.saved'));
     } catch (e) {
       toast.error(e);
@@ -147,16 +153,27 @@ function Prefs() {
             <div className="stack">
               <p className="field-hint">{t('notif.prefsIntro')}</p>
               <div className="grid-2">
-                <TextField label={t('notif.quietStart')} type="time" value={f.quietHoursStart ?? ''} onChange={(e) => setF({ ...f, quietHoursStart: e.target.value || null })} />
-                <TextField label={t('notif.quietEnd')} type="time" value={f.quietHoursEnd ?? ''} onChange={(e) => setF({ ...f, quietHoursEnd: e.target.value || null })} />
+                <TextField label={t('notif.quietStart')} type="time" value={f.quietStart ?? ''} onChange={(e) => setF({ ...f, quietStart: e.target.value || null })} />
+                <TextField label={t('notif.quietEnd')} type="time" value={f.quietEnd ?? ''} onChange={(e) => setF({ ...f, quietEnd: e.target.value || null })} />
               </div>
-              <SelectField label={t('notif.timezone')} value={f.timezone ?? timeZone} onChange={(e) => setF({ ...f, timezone: e.target.value })} options={zones.map((z) => ({ value: z, label: z }))} />
-              <Toggle label={t('notif.email')} hint={t('notif.emailHint')} checked={!!f.emailEnabled} onChange={(v) => setF({ ...f, emailEnabled: v })} />
+              <SelectField
+                label={t('notif.timezone')}
+                value={f.timezone ?? timeZone}
+                onChange={(e) => setF({ ...f, timezone: e.target.value })}
+                hint={f.timezoneSource === 'profile' ? t('notif.timezoneFromProfile') : undefined}
+                options={zones.map((z) => ({ value: z, label: z }))}
+              />
+              <Toggle
+                label={t('notif.email')}
+                hint={f.emailDriver === 'outbox' ? t('notif.emailOutbox') : t('notif.emailHint')}
+                checked={!!f.emailEnabled}
+                onChange={(v) => setF({ ...f, emailEnabled: v })}
+              />
               <div className="grid-2">
                 <TextField
                   label={t('notif.maxPerHour')}
                   type="number"
-                  min={0}
+                  min={1}
                   max={60}
                   value={f.maxPerHour ?? ''}
                   onChange={(e) => setF({ ...f, maxPerHour: e.target.value === '' ? null : Number(e.target.value) })}
@@ -167,8 +184,8 @@ function Prefs() {
                   type="number"
                   min={0}
                   max={1440}
-                  value={f.briefLeadMinutes ?? ''}
-                  onChange={(e) => setF({ ...f, briefLeadMinutes: e.target.value === '' ? null : Number(e.target.value) })}
+                  value={f.briefLeadMin ?? ''}
+                  onChange={(e) => setF({ ...f, briefLeadMin: e.target.value === '' ? null : Number(e.target.value) })}
                 />
               </div>
               <Button variant="primary" onClick={save} loading={busy}>

@@ -109,6 +109,7 @@ export function MeetingDetailPage() {
           <Route path="agenda" element={<AgendaTab />} />
           <Route path="settings" element={<MeetingSettingsTab />} />
           <Route path="export" element={<ExportTab />} />
+          <Route path="review" element={<Navigate to={p(`/review?meetingId=${meeting.id}`)} replace />} />
           <Route path="*" element={<Navigate to={defaultTab(meeting)} replace />} />
         </Routes>
       </div>

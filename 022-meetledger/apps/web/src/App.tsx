@@ -57,14 +57,15 @@ function RootRedirect() {
   return <Navigate to={`/w/${target}`} replace />;
 }
 
-/** /go/:target shortcuts (PWA manifest shortcuts) resolve into the last used workspace. */
-function GoRedirect() {
-  const { target } = useParams();
+/** /go/:target shortcuts (PWA manifest shortcuts, user-level notification links) resolve into the last used workspace. */
+function GoRedirect({ fixed }: { fixed?: string }) {
+  const params = useParams();
+  const target = fixed ?? params.target;
   const { me } = useSession();
   if (!me) return <Navigate to="/login" replace />;
   const ws = lastWorkspace(me.workspaces.map((w) => w.id)) ?? me.workspaces.find((w) => !w.isSample)?.id ?? me.workspaces[0]?.id;
   if (!ws) return <Navigate to="/no-workspace" replace />;
-  const map: Record<string, string> = { review: '/review', 'new-meeting': '/meetings/new', search: '/search' };
+  const map: Record<string, string> = { review: '/review', 'new-meeting': '/meetings/new', search: '/search', notifications: '/notifications' };
   return <Navigate to={`/w/${ws}${map[target ?? ''] ?? ''}`} replace />;
 }
 
@@ -105,6 +106,12 @@ function WorkspaceRoutes() {
             <Route path="meetings/:meetingId/*" element={<MeetingDetailPage />} />
             <Route path="review" element={<ReviewInboxPage />} />
             <Route path="ledger" element={<LedgerPage />} />
+            {/* aliases used by server-generated links (notifications, emails) */}
+            <Route path="dashboard" element={<Navigate to=".." relative="path" replace />} />
+            <Route path="actions" element={<LedgerAlias tab="actions" />} />
+            <Route path="commitments" element={<LedgerAlias tab="commitments" />} />
+            <Route path="decisions" element={<LedgerAlias tab="decisions" />} />
+            <Route path="questions" element={<LedgerAlias tab="questions" />} />
             <Route path="search" element={<SearchPage />} />
             <Route path="ask" element={<AskPage />} />
             <Route path="memory" element={<MemoryPage />} />
@@ -124,6 +131,13 @@ function WorkspaceRoutes() {
   );
 }
 
+function LedgerAlias({ tab }: { tab: string }) {
+  const loc = useLocation();
+  const q = new URLSearchParams(loc.search);
+  q.set('tab', tab);
+  return <Navigate to={`../ledger?${q.toString()}`} relative="path" replace />;
+}
+
 function NotFound() {
   const { t } = useI18n();
   return <EmptyState title={t('error.pageNotFound')} action={<LinkButton to="/">{t('ws.backHome')}</LinkButton>} />;
@@ -139,6 +153,7 @@ export function App() {
         <Route path="/invite" element={<AcceptInvitePage />} />
         <Route path="/no-workspace" element={<RequireAuth><NoWorkspacePage /></RequireAuth>} />
         <Route path="/go/:target" element={<GoRedirect />} />
+        <Route path="/notifications" element={<GoRedirect fixed="notifications" />} />
         <Route
           path="/w/:wsId/*"
           element={

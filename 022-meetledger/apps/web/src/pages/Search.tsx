@@ -1,13 +1,19 @@
 import { useState, type FormEvent, type ReactNode } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { SEARCH_ENTITY_TYPES, msToClock, type PersonDto } from '@meetledger/shared';
-import { Badge, Button, CachedNotice, Checkbox, EmptyState, ErrorView, Loading, PageHeader, SelectField, TextField } from '../components/ui';
+import { AiBadge, Badge, Button, CachedNotice, Checkbox, EmptyState, ErrorView, Loading, PageHeader, SelectField, TextField } from '../components/ui';
 import { Icon } from '../components/Icon';
 import { useI18n } from '../i18n';
 import { useWs } from '../state/workspace';
 import { listOf, qs } from '../lib/api';
 import { useApi } from '../lib/hooks';
 import type { ProjectDto, SearchHit } from '../lib/types';
+
+/** Server snippets mark matches with [[…]]; otherwise highlight the query terms client-side (never HTML). */
+function renderSnippet(text: string, q: string): ReactNode {
+  if (text.includes('[[')) return text.split(/\[\[(.*?)\]\]/g).map((part, i) => (i % 2 === 1 ? <mark key={i}>{part}</mark> : <span key={i}>{part}</span>));
+  return highlight(text, q);
+}
 
 function highlight(text: string, q: string): ReactNode {
   const terms = q
@@ -59,8 +65,22 @@ export function SearchPage() {
     setParams(next);
   };
   const hits = listOf<SearchHit>(state.data, 'hits', 'results');
+  const startOf = (h: SearchHit) => (typeof h.citation?.startMs === 'number' ? h.citation.startMs : typeof h.startMs === 'number' ? h.startMs : null);
   const linkFor = (h: SearchHit): string | null => {
-    if (h.meetingId) return p(`/meetings/${h.meetingId}/${h.entityType === 'segment' || typeof h.startMs === 'number' ? `transcript${typeof h.startMs === 'number' ? `?t=${h.startMs}` : ''}` : h.entityType === 'summary' ? 'summary' : h.entityType === 'note' ? 'capture' : ['decision', 'action', 'commitment', 'question'].includes(h.entityType) ? 'ledger' : ''}`);
+    const ts = startOf(h);
+    if (h.meetingId) {
+      const tab =
+        h.entityType === 'segment' || ts !== null
+          ? `transcript${ts !== null ? `?t=${ts}` : ''}`
+          : h.entityType === 'summary'
+            ? 'summary'
+            : h.entityType === 'note'
+              ? 'capture'
+              : ['decision', 'action', 'commitment', 'question'].includes(h.entityType)
+                ? 'ledger'
+                : '';
+      return p(`/meetings/${h.meetingId}/${tab}`);
+    }
     if (h.entityType === 'person') return p(`/people/${h.entityId}`);
     return null;
   };
@@ -116,25 +136,31 @@ export function SearchPage() {
             <ol className="results">
               {hits.map((h, i) => {
                 const to = linkFor(h);
+                const ts = startOf(h);
+                const meetingTitle = h.citation?.meetingTitle ?? h.meetingTitle ?? null;
+                const meetingDate = h.citation?.meetingDate ?? h.meetingDate ?? null;
                 return (
                   <li key={`${h.entityType}-${h.entityId}-${i}`} className="result">
                     <div className="result-head">
                       <Badge>{tm(`entity.${h.entityType}`, h.entityType)}</Badge>
+                      {h.aiGenerated && <AiBadge />}
                       {to ? (
                         <Link to={to} className="result-title">
-                          {h.title ?? h.meetingTitle ?? t('source.open')}
+                          {h.title ?? meetingTitle ?? t('source.open')}
                         </Link>
                       ) : (
-                        <span className="result-title">{h.title ?? h.meetingTitle}</span>
+                        <span className="result-title">{h.title ?? meetingTitle}</span>
                       )}
-                      {h.meetingDate && <span className="muted">{fmt.date(h.meetingDate)}</span>}
-                      {typeof h.startMs === 'number' && (
+                      {meetingTitle && h.title && h.title !== meetingTitle && <span className="muted">{meetingTitle}</span>}
+                      {meetingDate && <span className="muted">{fmt.date(meetingDate)}</span>}
+                      {h.speaker && <span className="muted">{h.speaker}</span>}
+                      {ts !== null && (
                         <span className="timestamp">
-                          <Icon name="clock" size={12} /> {msToClock(h.startMs)}
+                          <Icon name="clock" size={12} /> {msToClock(ts)}
                         </span>
                       )}
                     </div>
-                    <p className="result-snippet">{highlight(h.snippet ?? '', q)}</p>
+                    <p className="result-snippet">{renderSnippet(h.snippet ?? '', q)}</p>
                   </li>
                 );
               })}

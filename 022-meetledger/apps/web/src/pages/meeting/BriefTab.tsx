@@ -2,29 +2,35 @@ import type { ReactNode } from 'react';
 import { Link } from 'react-router-dom';
 import type { ActionDto, CommitmentDto, DecisionDto, MeetingDto, QuestionDto } from '@meetledger/shared';
 import { AiBadge, Alert, Async, Badge, Card } from '../../components/ui';
-import { ActionItem, CommitmentItem, DecisionItem, MeetingRow, QuestionItem } from '../../components/ledger';
+import { ActionItem, CommitmentItem, DecisionChangeItem, DecisionItem, MeetingRow, QuestionItem } from '../../components/ledger';
+import type { DecisionChangeDto } from '../../lib/types';
 import { useI18n, type MsgKey } from '../../i18n';
 import { useWs } from '../../state/workspace';
 import { useApi } from '../../lib/hooks';
-import { listOf } from '../../lib/api';
 import { useMeeting } from './context';
 
+interface BriefParticipant {
+  personId?: string | null;
+  name: string;
+  organization?: string | null;
+  roleTitle?: string | null;
+  isMe?: boolean;
+  isInternal?: boolean;
+}
 interface BriefDto {
   firstMeeting?: boolean;
   aiGenerated?: boolean;
   summary?: string | null;
-  participants?: { personId?: string | null; name: string; organization?: string | null; roleTitle?: string | null; lastMeetingAt?: string | null; notes?: string | null; firstMeeting?: boolean }[];
-  previousMeetings?: MeetingDto[];
-  lastMeeting?: (MeetingDto & { summary?: string | null }) | null;
+  participants?: BriefParticipant[];
+  agendaTemplate?: string[];
+  previousMeeting?: (MeetingDto & { via?: 'series' | 'participants' | 'project' }) | null;
+  currentDecisions?: DecisionDto[];
   openActions?: ActionDto[];
-  openCommitments?: CommitmentDto[];
-  commitments?: { mine?: CommitmentDto[]; theirs?: CommitmentDto[] } | CommitmentDto[];
+  commitments?: { mine?: CommitmentDto[]; theirs?: CommitmentDto[]; others?: CommitmentDto[] } | CommitmentDto[];
   openQuestions?: QuestionDto[];
-  recentDecisions?: DecisionDto[];
-  decisions?: DecisionDto[];
-  suggestedAgenda?: (string | { title: string })[];
-  agenda?: (string | { title: string })[];
-  [k: string]: unknown;
+  personNotes?: { personId: string; name: string; organization: string | null; roleTitle: string | null; profileNote: string | null; notes: { id: string; body: string; author: string | null; createdAt: string | null }[] }[];
+  recentChanges?: DecisionChangeDto[];
+  more?: { decisions?: number; actions?: number; commitments?: number; questions?: number };
 }
 
 function Block({ titleKey, n, children }: { titleKey: MsgKey; n: number; children: ReactNode }) {
@@ -66,11 +72,13 @@ export function BriefTab() {
       </Card>
       <Async state={state}>
         {(b) => {
-          const commitments = Array.isArray(b.commitments) ? b.commitments : [...(b.commitments?.mine ?? []), ...(b.commitments?.theirs ?? [])];
-          const openCommitments = b.openCommitments ?? commitments;
-          const decisions = b.recentDecisions ?? b.decisions ?? [];
-          const agenda = (b.suggestedAgenda ?? b.agenda ?? []).map((x) => (typeof x === 'string' ? x : x.title));
-          const prev = listOf<MeetingDto>(b.previousMeetings);
+          const c = b.commitments;
+          const mine = Array.isArray(c) ? c.filter((x) => x.direction === 'mine') : (c?.mine ?? []);
+          const theirs = Array.isArray(c) ? c.filter((x) => x.direction !== 'mine') : [...(c?.theirs ?? []), ...(c?.others ?? [])];
+          const decisions = b.currentDecisions ?? [];
+          const changes = b.recentChanges ?? [];
+          const others = (b.participants ?? []).filter((x) => !x.isMe);
+          const more = (n?: number) => (n ? <p className="field-hint">{t('brief.more', { n })}</p> : null);
           return (
             <>
               {b.firstMeeting && (
@@ -83,33 +91,11 @@ export function BriefTab() {
                   <p className="summary-text">{b.summary}</p>
                 </Card>
               )}
-              {b.participants && b.participants.length > 0 && (
-                <Card title={t('brief.people')}>
-                  <ul className="items">
-                    {b.participants.map((x, i) => (
-                      <li key={x.personId ?? i} className="item">
-                        <div className="item-main">
-                          <span className="item-title">
-                            {x.personId ? <Link to={p(`/people/${x.personId}`)}>{x.name}</Link> : x.name}
-                            {x.firstMeeting && <Badge tone="info">{t('brief.firstTime')}</Badge>}
-                          </span>
-                          <span className="item-meta">
-                            {[x.organization, x.roleTitle].filter(Boolean).join(' · ')}
-                            {x.lastMeetingAt && ` · ${t('people.lastMeeting')}: ${fmt.date(x.lastMeetingAt)}`}
-                          </span>
-                          {x.notes && <p className="muted">{x.notes}</p>}
-                        </div>
-                      </li>
-                    ))}
-                  </ul>
-                </Card>
-              )}
-              {b.lastMeeting && (
-                <Card title={t('brief.lastMeeting')}>
+              {b.previousMeeting && (
+                <Card title={t('brief.lastMeeting')} actions={b.previousMeeting.via ? <Badge>{t(`brief.via.${b.previousMeeting.via}` as MsgKey)}</Badge> : undefined}>
                   <ul className="rows">
-                    <MeetingRow m={b.lastMeeting} />
+                    <MeetingRow m={b.previousMeeting} />
                   </ul>
-                  {b.lastMeeting.summary && <p className="summary-text">{b.lastMeeting.summary}</p>}
                 </Card>
               )}
               <Block titleKey="brief.openActions" n={(b.openActions ?? []).length}>
@@ -118,13 +104,22 @@ export function BriefTab() {
                     <ActionItem key={x.id} action={x} />
                   ))}
                 </ul>
+                {more(b.more?.actions)}
               </Block>
-              <Block titleKey="brief.openCommitments" n={openCommitments.length}>
+              <Block titleKey="brief.myCommitments" n={mine.length}>
                 <ul className="items">
-                  {openCommitments.map((x) => (
+                  {mine.map((x) => (
                     <CommitmentItem key={x.id} c={x} />
                   ))}
                 </ul>
+              </Block>
+              <Block titleKey="brief.theirCommitments" n={theirs.length}>
+                <ul className="items">
+                  {theirs.map((x) => (
+                    <CommitmentItem key={x.id} c={x} />
+                  ))}
+                </ul>
+                {more(b.more?.commitments)}
               </Block>
               <Block titleKey="brief.openQuestions" n={(b.openQuestions ?? []).length}>
                 <ul className="items">
@@ -132,6 +127,7 @@ export function BriefTab() {
                     <QuestionItem key={x.id} q={x} />
                   ))}
                 </ul>
+                {more(b.more?.questions)}
               </Block>
               <Block titleKey="brief.decisions" n={decisions.length}>
                 <ul className="items">
@@ -139,18 +135,53 @@ export function BriefTab() {
                     <DecisionItem key={x.id} decision={x} />
                   ))}
                 </ul>
+                {more(b.more?.decisions)}
               </Block>
-              <Block titleKey="brief.previousMeetings" n={prev.length}>
-                <ul className="rows">
-                  {prev.map((m) => (
-                    <MeetingRow key={m.id} m={m} />
+              <Block titleKey="brief.changes" n={changes.length}>
+                <ul className="items">
+                  {changes.map((x, i) => (
+                    <DecisionChangeItem key={x.previous.id ?? i} change={x} />
                   ))}
                 </ul>
               </Block>
-              {agenda.length > 0 && (
-                <Card title={t('brief.suggestedAgenda')} candidate>
+              {(b.personNotes ?? []).length > 0 && (
+                <Card title={t('brief.people')}>
+                  <ul className="items">
+                    {(b.personNotes ?? []).map((x) => (
+                      <li key={x.personId} className="item">
+                        <div className="item-main">
+                          <span className="item-title">
+                            <Link to={p(`/people/${x.personId}`)}>{x.name}</Link>
+                          </span>
+                          <span className="item-meta">{[x.organization, x.roleTitle].filter(Boolean).join(' · ')}</span>
+                          {x.profileNote && <p className="pre muted">{x.profileNote}</p>}
+                          {x.notes.map((n) => (
+                            <p key={n.id} className="pre">
+                              {n.body} <span className="muted">— {n.author ?? ''} {fmt.date(n.createdAt)}</span>
+                            </p>
+                          ))}
+                        </div>
+                      </li>
+                    ))}
+                  </ul>
+                </Card>
+              )}
+              {others.length > 0 && !(b.personNotes ?? []).length && (
+                <Card title={t('brief.people')}>
+                  <ul className="chips">
+                    {others.map((x, i) => (
+                      <li key={x.personId ?? i} className="chip">
+                        {x.personId ? <Link to={p(`/people/${x.personId}`)}>{x.name}</Link> : x.name}
+                        {[x.organization, x.roleTitle].filter(Boolean).length > 0 && <span className="muted">{[x.organization, x.roleTitle].filter(Boolean).join(' · ')}</span>}
+                      </li>
+                    ))}
+                  </ul>
+                </Card>
+              )}
+              {(b.agendaTemplate ?? []).length > 0 && (
+                <Card title={t('brief.suggestedAgenda')}>
                   <ol className="plain-list">
-                    {agenda.map((x, i) => (
+                    {(b.agendaTemplate ?? []).map((x, i) => (
                       <li key={i}>{x}</li>
                     ))}
                   </ol>
