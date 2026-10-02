@@ -57,12 +57,15 @@ const TEXT = {
     l === 'ja'
       ? { title: `本日が期限の約束：${clip(x.desc)}`, body: `${x.to ? `${x.to} への約束です。` : ''}${x.meeting ? `「${clip(x.meeting, 60)}」で確認されました。` : ''}` }
       : { title: `Commitment due today: ${clip(x.desc)}`, body: `${x.to ? `Promised to ${x.to}. ` : ''}${x.meeting ? `From "${clip(x.meeting, 60)}".` : ''}` },
-  overdue_digest: (l: Locale, items: { desc: string; due: string }[]) => {
-    const lines = items.slice(0, 10).map((i) => (l === 'ja' ? `・${clip(i.desc, 60)}（期限 ${i.due}）` : `- ${clip(i.desc, 60)} (due ${i.due})`));
-    const more = items.length > 10 ? (l === 'ja' ? `ほか ${items.length - 10}件` : `and ${items.length - 10} more`) : null;
+  overdue_digest: (l: Locale, items: { desc: string; due: string }[], total: number, capped: boolean) => {
+    const shown = items.slice(0, 10);
+    const lines = shown.map((i) => (l === 'ja' ? `・${clip(i.desc, 60)}（期限 ${i.due}）` : `- ${clip(i.desc, 60)} (due ${i.due})`));
+    const rest = total - shown.length;
+    const n = capped ? (l === 'ja' ? `${total}件以上` : `${total}+`) : l === 'ja' ? `${total}件` : `${total}`;
+    const more = rest > 0 ? (l === 'ja' ? `ほか ${capped ? `${rest}件以上` : `${rest}件`}` : `and ${rest}${capped ? '+' : ''} more`) : null;
     return l === 'ja'
-      ? { title: `期限が過ぎています（${items.length}件）`, body: [...lines, ...(more ? [more] : []), '', '状況が変わった項目は、完了・期限変更・取り消しで整理できます。'].join('\n') }
-      : { title: `Past due date (${items.length})`, body: [...lines, ...(more ? [more] : []), '', 'Items whose situation changed can be marked done, rescheduled or cancelled.'].join('\n') };
+      ? { title: `期限が過ぎています（${n}）`, body: [...lines, ...(more ? [more] : []), '', '状況が変わった項目は、完了・期限変更・取り消しで整理できます。'].join('\n') }
+      : { title: `Past due date (${n})`, body: [...lines, ...(more ? [more] : []), '', 'Items whose situation changed can be marked done, rescheduled or cancelled.'].join('\n') };
   },
   upcoming_brief: (l: Locale, x: { title: string; at: string }) =>
     l === 'ja'
@@ -122,87 +125,122 @@ interface NewNotification {
   status?: 'pending' | 'suppressed';
 }
 
-async function insertNotification(db: Db, orgId: string, userId: string, n: NewNotification, now: Date): Promise<boolean> {
-  const r = await db.query(
-    `INSERT INTO notifications(org_id, workspace_id, user_id, kind, entity_type, entity_id, dedupe_key, title, body, link, scheduled_for, status, created_at)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13) ON CONFLICT (user_id, dedupe_key) DO NOTHING RETURNING id`,
-    [orgId, n.workspaceId, userId, n.kind, n.entityType, n.entityId, n.dedupeKey, n.title, n.body, n.link, n.scheduledFor, n.status ?? 'pending', now],
-  );
-  return (r.rowCount ?? 0) > 0;
+/** Batched insert (unnest): ON CONFLICT (user_id, dedupe_key) DO NOTHING ⇒ re-running never duplicates. Returns rows created. */
+async function insertNotifications(db: Db, orgId: string, list: (NewNotification & { userId: string })[], now: Date): Promise<number> {
+  let created = 0;
+  for (let i = 0; i < list.length; i += 500) {
+    const chunk = list.slice(i, i + 500);
+    const col = <T>(f: (n: NewNotification & { userId: string }) => T) => chunk.map(f);
+    const r = await db.query(
+      `INSERT INTO notifications(org_id, workspace_id, user_id, kind, entity_type, entity_id, dedupe_key, title, body, link, scheduled_for, status, created_at)
+       SELECT $1, w, u, k, et, ei, dk, t, b, l, sf, st, $2
+         FROM unnest($3::uuid[], $4::uuid[], $5::text[], $6::text[], $7::uuid[], $8::text[], $9::text[], $10::text[], $11::text[], $12::timestamptz[], $13::text[])
+              AS x(w, u, k, et, ei, dk, t, b, l, sf, st)
+       ON CONFLICT (user_id, dedupe_key) DO NOTHING`,
+      [
+        orgId,
+        now,
+        col((n) => n.workspaceId),
+        col((n) => n.userId),
+        col((n) => n.kind),
+        col((n) => n.entityType),
+        col((n) => n.entityId),
+        col((n) => n.dedupeKey),
+        col((n) => n.title),
+        col((n) => n.body),
+        col((n) => n.link),
+        col((n) => n.scheduledFor),
+        col((n) => n.status ?? 'pending'),
+      ],
+    );
+    created += r.rowCount ?? 0;
+  }
+  return created;
 }
 
-/** Creates due notifications for one organization (idempotent: re-running never duplicates). Returns number created. */
-export async function generateNotifications(db: Db, orgId: string, users: Map<string, NotifyUser>, now: Date): Promise<number> {
-  let created = 0;
-  const add = async (userId: string, n: NewNotification) => {
-    if (await insertNotification(db, orgId, userId, n, now)) created++;
-  };
-  // Recipient must (still) be a member of a live workspace.
-  const wsMember = (wsCol: string, userCol: string) =>
-    `EXISTS (SELECT 1 FROM workspace_members wm JOIN workspaces w ON w.id = wm.workspace_id AND w.deleted_at IS NULL WHERE wm.workspace_id = ${wsCol} AND wm.user_id = ${userCol})`;
+/** Overdue digests are created in the user's morning (quiet end + 3h), at most once per local ISO week. */
+const MORNING_WINDOW_MIN = 180;
+/** Overdue counts in the digest stop here ("1000件以上"). */
+export const OVERDUE_COUNT_CAP = 1000;
 
-  // 1) needs_review (T+0) → meeting owner
-  const review = await rows(
+/**
+ * Creates due notifications for one organization. Idempotent (dedupe keys) and bounded at spec §40 scale:
+ * every candidate query is an index range (due-date window, recent confirmations, upcoming meetings, recent meetings);
+ * overdue items are never iterated — each user's weekly digest is one top-10 query + one capped count.
+ */
+export async function generateNotifications(db: Db, orgId: string, users: Map<string, NotifyUser>, now: Date): Promise<number> {
+  const out: (NewNotification & { userId: string })[] = [];
+  const add = (userId: string, n: NewNotification) => out.push({ ...n, userId });
+  const wsIds = (await rows<{ id: string }>(db, 'SELECT id FROM workspaces WHERE org_id = $1 AND deleted_at IS NULL', [orgId])).map((r) => r.id);
+  if (!wsIds.length || !users.size) return 0;
+  // per-user local date / clock, computed once (Intl formatting is expensive)
+  const local = new Map<string, { today: string; minutes: number }>();
+  for (const u of users.values()) local.set(u.id, { today: dateInTz(now, u.tz), minutes: minutesInTz(now, u.tz) });
+  // Recipient must (still) be a member of a live workspace of this org.
+  const wsMember = (wsCol: string, userCol: string) => `EXISTS (SELECT 1 FROM workspace_members wm WHERE wm.workspace_id = ${wsCol} AND wm.user_id = ${userCol})`;
+  const utcToday = now.toISOString().slice(0, 10);
+
+  // 1) needs_review (T+0) → meeting owner. Recent meetings via meetings_ws_start; candidate counts grouped.
+  const recent = await rows(
     db,
-    `SELECT m.id, m.workspace_id, m.title, m.status, m.created_by AS user_id,
-            ((SELECT count(*) FROM decisions d WHERE d.meeting_id = m.id AND d.review_state = 'candidate')
-           + (SELECT count(*) FROM actions a WHERE a.meeting_id = m.id AND a.status = 'candidate')
-           + (SELECT count(*) FROM commitments c WHERE c.meeting_id = m.id AND c.status = 'candidate')
-           + (SELECT count(*) FROM open_questions q WHERE q.meeting_id = m.id AND q.status = 'candidate'))::int AS candidates
-       FROM meetings m
-      WHERE m.org_id = $1 AND m.deleted_at IS NULL AND m.status IN ('needs_review', 'ready')
+    `SELECT m.id, m.workspace_id, m.title, m.status, m.created_by AS user_id FROM meetings m
+      WHERE m.workspace_id = ANY($1::uuid[]) AND m.deleted_at IS NULL AND m.status IN ('needs_review', 'ready')
+        AND (m.scheduled_start >= $2::timestamptz - interval '15 days' OR (m.scheduled_start IS NULL AND m.created_at >= $2::timestamptz - interval '15 days'))
         AND coalesce(m.ended_at, m.scheduled_end, m.scheduled_start, m.created_at) >= $2::timestamptz - interval '14 days'
         AND ${wsMember('m.workspace_id', 'm.created_by')}`,
-    [orgId, now],
+    [wsIds, now],
   );
-  for (const r of review) {
-    const u = users.get(r.user_id);
-    if (!u || (r.status !== 'needs_review' && r.candidates === 0)) continue;
-    const t = TEXT.needs_review(u.locale, { title: r.title, count: r.candidates });
-    await add(u.id, {
-      workspaceId: r.workspace_id,
-      kind: 'needs_review',
-      entityType: 'meeting',
-      entityId: r.id,
-      dedupeKey: `needs_review:${r.id}`,
-      ...t,
-      link: `/w/${r.workspace_id}/meetings/${r.id}/review`,
-      scheduledFor: applyQuietHours(now, u),
-    });
+  if (recent.length) {
+    const ids = recent.map((r) => r.id);
+    const cand = new Map<string, number>();
+    for (const [table, cond] of [
+      ['decisions', "review_state = 'candidate'"],
+      ['actions', "status = 'candidate'"],
+      ['commitments', "status = 'candidate'"],
+      ['open_questions', "status = 'candidate'"],
+    ] as const)
+      for (const r of await rows<{ meeting_id: string; n: number }>(db, `SELECT meeting_id, count(*)::int AS n FROM ${table} WHERE meeting_id = ANY($1::uuid[]) AND ${cond} GROUP BY 1`, [ids]))
+        cand.set(r.meeting_id, (cand.get(r.meeting_id) ?? 0) + r.n);
+    for (const r of recent) {
+      const u = users.get(r.user_id);
+      const n = cand.get(r.id) ?? 0;
+      if (!u || (r.status !== 'needs_review' && n === 0)) continue;
+      add(u.id, {
+        workspaceId: r.workspace_id,
+        kind: 'needs_review',
+        entityType: 'meeting',
+        entityId: r.id,
+        dedupeKey: `needs_review:${r.id}`,
+        ...TEXT.needs_review(u.locale, { title: r.title, count: n }),
+        link: `/w/${r.workspace_id}/meetings/${r.id}/review`,
+        scheduledFor: applyQuietHours(now, u),
+      });
+    }
   }
 
-  const overdue = new Map<string, { ws: string; desc: string; due: string; type: string; id: string }[]>();
-  const pushOverdue = (userId: string, x: { ws: string; desc: string; due: string; type: string; id: string }) => {
-    const list = overdue.get(userId) ?? [];
-    list.push(x);
-    overdue.set(userId, list);
-  };
-
-  // 2) actions: T+1 reminder, due-date morning, overdue (digest)
-  const actions = await rows(
-    db,
-    `SELECT a.id, a.workspace_id, a.description, a.due_date, a.confirmed_at, m.title AS meeting_title, r.user_id
-       FROM actions a
-       LEFT JOIN people ap ON ap.id = a.assignee_person_id
-       LEFT JOIN meetings m ON m.id = a.meeting_id
-       CROSS JOIN LATERAL (SELECT coalesce(a.assignee_user_id, ap.user_id) AS user_id) r
-      WHERE a.org_id = $1 AND a.status IN ('confirmed', 'in_progress') AND r.user_id IS NOT NULL
-        AND ${wsMember('a.workspace_id', 'r.user_id')}
-        AND (a.meeting_id IS NULL OR ${meetingVisibleSql('m', 'r.user_id')})
-        AND (a.confirmed_at >= $2::timestamptz - interval '4 days' OR (a.due_date IS NOT NULL AND a.due_date <= ($2::timestamptz AT TIME ZONE 'UTC')::date + 1))`,
-    [orgId, now],
-  );
-  for (const a of actions) {
+  // 2) actions: due today (user tz) and T+1 after confirmation — two index ranges (due window / recent confirmations)
+  const actionSql = (cond: string) => `
+    SELECT a.id, a.workspace_id, a.description, a.due_date, a.confirmed_at, m.title AS meeting_title, r.user_id
+      FROM actions a
+      LEFT JOIN people ap ON ap.id = a.assignee_person_id
+      LEFT JOIN meetings m ON m.id = a.meeting_id
+      CROSS JOIN LATERAL (SELECT coalesce(a.assignee_user_id, ap.user_id) AS user_id) r
+     WHERE a.workspace_id = ANY($1::uuid[]) AND a.status IN ('confirmed', 'in_progress') AND r.user_id IS NOT NULL AND ${cond}
+       AND ${wsMember('a.workspace_id', 'r.user_id')}
+       AND (a.meeting_id IS NULL OR ${meetingVisibleSql('m', 'r.user_id')})`;
+  const dueActions = await rows(db, actionSql(`a.due_date BETWEEN $2::date - 1 AND $2::date + 1`), [wsIds, utcToday]);
+  const t1Actions = await rows(db, actionSql(`a.confirmed_at >= $2::timestamptz - interval '4 days' AND a.confirmed_at <= $2::timestamptz`), [wsIds, now]);
+  const seen = new Set<string>();
+  for (const a of [...dueActions, ...t1Actions]) {
+    if (seen.has(a.id)) continue;
+    seen.add(a.id);
     const u = users.get(a.user_id);
     if (!u) continue;
-    const today = dateInTz(now, u.tz);
-    if (a.due_date && a.due_date < today) {
-      pushOverdue(u.id, { ws: a.workspace_id, desc: a.description, due: a.due_date, type: 'action', id: a.id });
-      continue;
-    }
+    const { today } = local.get(u.id)!;
+    if (a.due_date && a.due_date < today) continue; // overdue → weekly digest
     if (a.due_date === today) {
       const morning = zonedTime(today, u.quietEndMin, u.tz);
-      await add(u.id, {
+      add(u.id, {
         workspaceId: a.workspace_id,
         kind: 'action_due',
         entityType: 'action',
@@ -217,7 +255,7 @@ export async function generateNotifications(db: Db, orgId: string, users: Map<st
     if (a.confirmed_at) {
       const confirmedDay = dateInTz(new Date(a.confirmed_at), u.tz);
       if (today > confirmedDay && today <= addDays(confirmedDay, 2)) {
-        await add(u.id, {
+        add(u.id, {
           workspaceId: a.workspace_id,
           kind: 'action_t1',
           entityType: 'action',
@@ -231,8 +269,8 @@ export async function generateNotifications(db: Db, orgId: string, users: Map<st
     }
   }
 
-  // 3) my commitments: due-date morning, overdue (digest)
-  const commitments = await rows(
+  // 3) my commitments due today (due window via commitments_ws_due)
+  const dueCommitments = await rows(
     db,
     `SELECT c.id, c.workspace_id, c.description, c.due_date, m.title AS meeting_title, r.user_id,
             coalesce(pt.name, ptu.name, c.promised_to_text) AS to_name
@@ -242,53 +280,63 @@ export async function generateNotifications(db: Db, orgId: string, users: Map<st
        LEFT JOIN users ptu ON ptu.id = c.promised_to_user_id
        LEFT JOIN meetings m ON m.id = c.meeting_id
        CROSS JOIN LATERAL (SELECT coalesce(c.promised_by_user_id, pb.user_id) AS user_id) r
-      WHERE c.org_id = $1 AND c.status = 'open' AND r.user_id IS NOT NULL AND c.due_date IS NOT NULL
-        AND c.due_date <= ($2::timestamptz AT TIME ZONE 'UTC')::date + 1
+      WHERE c.workspace_id = ANY($1::uuid[]) AND c.status = 'open' AND r.user_id IS NOT NULL
+        AND c.due_date BETWEEN $2::date - 1 AND $2::date + 1
         AND ${wsMember('c.workspace_id', 'r.user_id')}
         AND (c.meeting_id IS NULL OR ${meetingVisibleSql('m', 'r.user_id')})`,
-    [orgId, now],
+    [wsIds, utcToday],
   );
-  for (const c of commitments) {
+  for (const c of dueCommitments) {
     const u = users.get(c.user_id);
-    if (!u) continue;
-    const today = dateInTz(now, u.tz);
-    if (c.due_date < today) {
-      pushOverdue(u.id, { ws: c.workspace_id, desc: c.description, due: c.due_date, type: 'commitment', id: c.id });
-    } else if (c.due_date === today) {
-      const morning = zonedTime(today, u.quietEndMin, u.tz);
-      await add(u.id, {
-        workspaceId: c.workspace_id,
-        kind: 'commitment_due',
-        entityType: 'commitment',
-        entityId: c.id,
-        dedupeKey: `commitment_due:${c.id}:${c.due_date}`,
-        ...TEXT.commitment_due(u.locale, { desc: c.description, to: c.to_name, meeting: c.meeting_title }),
-        link: `/w/${c.workspace_id}/commitments?direction=mine`,
-        scheduledFor: applyQuietHours(morning > now ? morning : now, u),
+    if (!u || c.due_date !== local.get(u.id)!.today) continue;
+    const morning = zonedTime(c.due_date, u.quietEndMin, u.tz);
+    add(u.id, {
+      workspaceId: c.workspace_id,
+      kind: 'commitment_due',
+      entityType: 'commitment',
+      entityId: c.id,
+      dedupeKey: `commitment_due:${c.id}:${c.due_date}`,
+      ...TEXT.commitment_due(u.locale, { desc: c.description, to: c.to_name, meeting: c.meeting_title }),
+      link: `/w/${c.workspace_id}/commitments?direction=mine`,
+      scheduledFor: applyQuietHours(morning > now ? morning : now, u),
+    });
+  }
+
+  // 4) overdue digest: once per local ISO week, in the user's morning; bounded per user (top 10 + capped count)
+  const due: { u: NotifyUser; key: string; today: string }[] = [];
+  for (const u of users.values()) {
+    const { today, minutes } = local.get(u.id)!;
+    const start = u.quietStartMin === u.quietEndMin ? 480 : u.quietEndMin;
+    if (inQuietHours(minutes, u.quietStartMin, u.quietEndMin) || (minutes - start + 1440) % 1440 >= MORNING_WINDOW_MIN) continue;
+    due.push({ u, key: `overdue_digest:${orgId}:${isoWeekKey(today)}`, today });
+  }
+  if (due.length) {
+    const have = new Set(
+      (
+        await rows<{ user_id: string }>(db, 'SELECT user_id FROM notifications WHERE user_id = ANY($1::uuid[]) AND dedupe_key = ANY($2::text[])', [
+          due.map((d) => d.u.id),
+          [...new Set(due.map((d) => d.key))],
+        ])
+      ).map((r) => r.user_id),
+    );
+    for (const d of due) {
+      if (have.has(d.u.id)) continue;
+      const digest = await overdueFor(db, d.u, d.today);
+      if (!digest.total) continue;
+      add(d.u.id, {
+        workspaceId: digest.wsIds.length === 1 ? digest.wsIds[0] : null,
+        kind: 'overdue_digest',
+        entityType: null,
+        entityId: null,
+        dedupeKey: d.key,
+        ...TEXT.overdue_digest(d.u.locale, digest.items, digest.total, digest.capped),
+        link: digest.wsIds.length === 1 ? `/w/${digest.wsIds[0]}/dashboard` : '/notifications',
+        scheduledFor: now,
       });
     }
   }
 
-  // 4) overdue digest: at most once per local ISO week per user (per organization), created outside quiet hours only
-  for (const [userId, items] of overdue) {
-    const u = users.get(userId)!;
-    if (inQuietHours(minutesInTz(now, u.tz), u.quietStartMin, u.quietEndMin)) continue;
-    items.sort((x, y) => x.due.localeCompare(y.due));
-    const week = isoWeekKey(dateInTz(now, u.tz));
-    const wsIds = [...new Set(items.map((i) => i.ws))];
-    await add(u.id, {
-      workspaceId: wsIds.length === 1 ? wsIds[0] : null,
-      kind: 'overdue_digest',
-      entityType: null,
-      entityId: null,
-      dedupeKey: `overdue_digest:${orgId}:${week}`,
-      ...TEXT.overdue_digest(u.locale, items),
-      link: wsIds.length === 1 ? `/w/${wsIds[0]}/dashboard` : '/notifications',
-      scheduledFor: now,
-    });
-  }
-
-  // 5) upcoming_brief: brief_lead_min before meetings the user takes part in (and can see)
+  // 5) upcoming_brief: brief_lead_min before meetings the user takes part in (and can see) — meetings_ws_start range
   const upcoming = await rows(
     db,
     `SELECT DISTINCT m.id, m.workspace_id, m.title, m.scheduled_start, x.user_id
@@ -298,10 +346,10 @@ export async function generateNotifications(db: Db, orgId: string, users: Map<st
          UNION SELECT p.user_id FROM participants p WHERE p.meeting_id = m.id AND p.user_id IS NOT NULL
          UNION SELECT pe.user_id FROM participants p JOIN people pe ON pe.id = p.person_id WHERE p.meeting_id = m.id AND pe.user_id IS NOT NULL
        ) x
-      WHERE m.org_id = $1 AND m.deleted_at IS NULL AND m.status = 'scheduled'
+      WHERE m.workspace_id = ANY($1::uuid[]) AND m.deleted_at IS NULL AND m.status = 'scheduled'
         AND m.scheduled_start > $2::timestamptz AND m.scheduled_start <= $2::timestamptz + interval '1440 minutes'
         AND ${wsMember('m.workspace_id', 'x.user_id')} AND ${meetingVisibleSql('m', 'x.user_id')}`,
-    [orgId, now],
+    [wsIds, now],
   );
   for (const r of upcoming) {
     const u = users.get(r.user_id);
@@ -309,7 +357,7 @@ export async function generateNotifications(db: Db, orgId: string, users: Map<st
     const start = new Date(r.scheduled_start);
     if (now.getTime() < start.getTime() - u.briefLeadMin * 60_000) continue;
     const at = applyQuietHours(now, u);
-    await add(u.id, {
+    add(u.id, {
       workspaceId: r.workspace_id,
       kind: 'upcoming_brief',
       entityType: 'meeting',
@@ -328,18 +376,19 @@ export async function generateNotifications(db: Db, orgId: string, users: Map<st
     db,
     `SELECT m.id, m.workspace_id, m.created_by AS user_id, s.id AS series_id, s.title AS series_title
        FROM meetings m JOIN series s ON s.id = m.series_id
-      WHERE m.org_id = $1 AND m.deleted_at IS NULL
+      WHERE m.workspace_id = ANY($1::uuid[]) AND m.deleted_at IS NULL
+        AND (m.scheduled_start >= $2::timestamptz - interval '4 days' OR (m.scheduled_start IS NULL AND m.created_at >= $2::timestamptz - interval '4 days'))
         AND (m.ended_at IS NOT NULL OR m.status IN ('ready', 'needs_review', 'archived'))
         AND coalesce(m.ended_at, m.scheduled_end, m.scheduled_start) BETWEEN $2::timestamptz - interval '3 days' AND $2::timestamptz
         AND NOT EXISTS (SELECT 1 FROM meetings nm WHERE nm.series_id = m.series_id AND nm.id <> m.id AND nm.deleted_at IS NULL
                          AND coalesce(nm.scheduled_start, nm.created_at) > coalesce(m.scheduled_start, m.started_at, m.created_at))
         AND ${wsMember('m.workspace_id', 'm.created_by')}`,
-    [orgId, now],
+    [wsIds, now],
   );
   for (const r of nexts) {
     const u = users.get(r.user_id);
     if (!u) continue;
-    await add(u.id, {
+    add(u.id, {
       workspaceId: r.workspace_id,
       kind: 'next_meeting',
       entityType: 'series',
@@ -350,7 +399,42 @@ export async function generateNotifications(db: Db, orgId: string, users: Map<st
       scheduledFor: applyQuietHours(now, u),
     });
   }
-  return created;
+  return insertNotifications(db, orgId, out, now);
+}
+
+/** A user's overdue open actions (assigned to them) and commitments (promised by them): newest-due 10 + capped total. */
+async function overdueFor(db: Db, u: NotifyUser, today: string) {
+  const ws = (
+    await rows<{ workspace_id: string }>(
+      db,
+      `SELECT wm.workspace_id FROM workspace_members wm JOIN workspaces w ON w.id = wm.workspace_id AND w.deleted_at IS NULL WHERE wm.user_id = $1`,
+      [u.id],
+    )
+  ).map((r) => r.workspace_id);
+  if (!ws.length) return { items: [], total: 0, capped: false, wsIds: [] as string[] };
+  const persons = (await rows<{ id: string }>(db, 'SELECT id FROM people WHERE workspace_id = ANY($1::uuid[]) AND user_id = $2 AND deleted_at IS NULL', [ws, u.id])).map(
+    (r) => r.id,
+  );
+  const vis = (alias: string) => `(${alias}.meeting_id IS NULL OR EXISTS (SELECT 1 FROM meetings vm WHERE vm.id = ${alias}.meeting_id AND ${meetingVisibleSql('vm', '$2')}))`;
+  const who = (userCol: string, personCol: string) => (persons.length ? `(x.${userCol} = $2 OR x.${personCol} = ANY($4::uuid[]))` : `x.${userCol} = $2`);
+  const parts = [
+    `SELECT x.id, x.workspace_id, x.description, x.due_date FROM actions x
+      WHERE x.workspace_id = ANY($1::uuid[]) AND ${who('assignee_user_id', 'assignee_person_id')} AND x.status IN ('confirmed', 'in_progress')
+        AND x.due_date < $3::date AND ${vis('x')}`,
+    `SELECT x.id, x.workspace_id, x.description, x.due_date FROM commitments x
+      WHERE x.workspace_id = ANY($1::uuid[]) AND ${who('promised_by_user_id', 'promised_by_person_id')} AND x.status = 'open'
+        AND x.due_date < $3::date AND ${vis('x')}`,
+  ];
+  const params = persons.length ? [ws, u.id, today, persons] : [ws, u.id, today];
+  const top: any[] = [];
+  let total = 0;
+  for (const sql of parts) {
+    top.push(...(await rows(db, `${sql} ORDER BY x.due_date DESC, x.id DESC LIMIT 10`, params)));
+    total += (await rows<{ n: number }>(db, `SELECT count(*)::int AS n FROM (${sql} LIMIT ${OVERDUE_COUNT_CAP}) c`, params))[0].n;
+  }
+  top.sort((a, b) => (a.due_date < b.due_date ? 1 : a.due_date > b.due_date ? -1 : 0));
+  const items = top.slice(0, 10).map((x) => ({ desc: x.description as string, due: x.due_date as string, ws: x.workspace_id as string }));
+  return { items, total, capped: total >= OVERDUE_COUNT_CAP, wsIds: [...new Set(top.map((x) => x.workspace_id as string))] };
 }
 
 export interface DeliveryResult {

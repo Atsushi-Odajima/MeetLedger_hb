@@ -1,0 +1,1388 @@
+MeetLedger 第三者ソフトウェア・AIモデル・フォントに関する表示（THIRD_PARTY_NOTICES）
+==============================================================================
+対象: MeetLedger 1.0.0（サーバー / Web アプリ・PWA / デスクトップアプリ）
+作成日: 2026-10-02
+作成方法: node scripts/gen-third-party-notices.mjs で自動生成しています。
+          各プロジェクトで「npm ls --omit=dev --all」を実行して実行時の依存パッケージを洗い出し、
+          インストール済みの各パッケージの package.json（license 欄）と LICENSE / NOTICE ファイルを読み取っています。
+
+この文書は、MeetLedger が利用している第三者（MeetLedger の販売元以外）のソフトウェア・AIモデル・フォントと、
+その著作権表示・ライセンスをまとめたものです。MeetLedger 本体（apps/*、packages/* の @meetledger/* パッケージ）は
+販売元の著作物のため、この一覧には含めていません。
+
+ご注意
+  - ライセンス名は各パッケージの package.json の記載を転記したものです。正式な条件は、各パッケージに含まれる
+    LICENSE ファイルや配布元の表示をご確認ください。
+  - 著作権表示は LICENSE ファイルから「Copyright」で始まる行を抜き出したものです。LICENSE ファイルが無い、または
+    著作権表示の行が無いパッケージは、package.json の作者（author）欄を記載しています。
+  - この文書は法的助言ではありません。製品の再配布・販売の前に、法務担当者による確認をおすすめします。
+
+目次
+  1. AI・音声認識モデル（製品には同梱しません）
+  2. フォント（製品には同梱しません）
+  3. 製品に同梱しない外部ソフトウェア（ffmpeg、PostgreSQL ほか）
+  4. デスクトップアプリ・ローカル文字起こしに含まれるランタイム（Electron、ONNX Runtime）
+  5. npm パッケージ一覧（サーバー / Web・PWA / デスクトップアプリ）
+  6. ライセンス別の件数
+  7. MIT / ISC / BSD / Apache-2.0 以外のライセンスの本文
+  8. パッケージに含まれる NOTICE ファイル
+  9. 主なライセンスの本文（MIT / ISC / BSD-2-Clause / BSD-3-Clause / Apache-2.0）
+
+
+1. AI・音声認識モデル（製品には同梱しません）
+------------------------------------------------------------------------------
+
+ローカル文字起こし（端末内・サーバー内での文字起こし）に使うモデルは、製品のファイルには含まれていません。
+管理者（サーバー）または利用者（デスクトップアプリ）が明示的に操作したときだけ、配布元
+（k2-fsa/sherpa-onnx の GitHub Releases）からダウンロードされます。ダウンロード後にサイズと SHA-256 を検証します。
+  - サーバー: bash scripts/download-models.sh
+  - デスクトップアプリ: 設定画面の「文字起こしモデル（端末内）」から（サイズとライセンスの確認ダイアログが出ます）
+
+(1) SenseVoiceSmall（文字起こしモデル。sherpa-onnx 用 int8 版 2024-07-17）
+    権利者:     Alibaba Group（Tongyi Lab / FunAudioLLM）
+    ライセンス: FunASR Model Open Source License Agreement v1.1
+                https://github.com/modelscope/FunASR/blob/main/MODEL_LICENSE
+    表示が必要な文言（同ライセンス §2.2「出典・作者情報の明示、モデル名の保持」に基づく）:
+      SenseVoiceSmall © Alibaba Group (Tongyi Lab / FunAudioLLM). Licensed under the FunASR Model Open Source License v1.1.
+      Converted to ONNX by k2-fsa/sherpa-onnx.
+    補足: 2026-10-02 時点の調査（docs/SOURCE_NOTES.md）では、ライセンス条件を守ることを前提に商用利用は可能とされて
+          います。ライセンスの改訂は自動的に効力を持つと定められているため、定期的に原文を確認してください。
+
+(2) Silero VAD（音声区間検出モデル silero_vad.onnx）
+    配布元:     snakers4/silero-vad（Silero）
+    ライセンス: MIT（配布元リポジトリの表示による。ライセンス原文・著作権表示の再確認は未実施＝要確認）
+                https://github.com/snakers4/silero-vad
+
+(3) pyannote segmentation-3.0（話者分離用のセグメンテーションモデル。sherpa-onnx 用 ONNX 版）
+    Copyright (c) 2022 CNRS
+    ライセンス: MIT License（モデルの配布物に LICENSE が同梱されています。本文は 9 章の MIT と同じです）
+    表示文言: pyannote/segmentation-3.0 © 2022 CNRS (MIT License)
+
+(4) 3D-Speaker CAM++（話者の声の特徴を数値にするモデル speech_campplus_sv_zh_en_16k-common_advanced）
+    権利者:     Alibaba（modelscope/3D-Speaker）
+    ライセンス: 要確認。3D-Speaker のリポジトリは Apache-2.0 ですが、このモデル個別のライセンス
+                （ModelScope のモデルカード）は確認できていません。販売・商用利用の前に法務確認が必要です。
+                デスクトップアプリの設定画面でも「商用利用 未確認」と表示されます。
+    表示文言: 3D-Speaker CAM++ © Alibaba (modelscope/3D-Speaker)
+    補足: 話者分離（誰が話したかの区別）を使わない場合、このモデルはダウンロード不要です
+          （bash scripts/download-models.sh sense-voice で文字起こしモデルだけを取得できます）。
+
+MeetLedger は声の特徴量を保存せず、声から本人を特定することもしません（話者は「Speaker 1」などの匿名ラベル）。
+
+
+2. フォント（製品には同梱しません）
+------------------------------------------------------------------------------
+
+製品にフォントファイルは含まれていません。画面の文字は、利用者の端末に入っているシステムフォントで表示します。
+
+(1) Inter（Inter Display SemiBold、v4.1）
+    Copyright (c) 2016 The Inter Project Authors (https://github.com/rsms/inter)
+    ライセンス: SIL Open Font License, Version 1.1
+    用途: ロゴ（ワードマーク「MeetLedger」）の文字の形を、SVG の図形（パス）に変換して使っています。
+          フォントファイル自体は含みません。
+
+(2) Noto Sans JP（2.004）
+    (c) 2014-2021 Adobe (http://www.adobe.com/), with Reserved Font Name 'Source'.
+    ライセンス: SIL Open Font License, Version 1.1
+    用途: og.png（共有用画像）とブランドボード画像の日本語文字を、画像として描画するためだけに使用しました。
+
+詳細（入手元・SHA-256 など）: brand/THIRD_PARTY_FONT_NOTICE.txt
+SIL OFL 1.1 の本文: https://openfontlicense.org/
+
+
+3. 製品に同梱しない外部ソフトウェア
+------------------------------------------------------------------------------
+
+(1) ffmpeg / ffprobe（音声・動画の変換と情報取得）
+    サーバーが外部コマンドとして呼び出します（環境変数 FFMPEG_PATH / FFPROBE_PATH）。MeetLedger のファイルには含まれません。
+    - 付属の Dockerfile では、イメージを作るときに Debian（bookworm）の ffmpeg パッケージを apt でインストールします。
+      ライセンスは Debian のビルド構成により LGPL-2.1 以降または GPL-2.0 以降の部分を含みます。正式な条件は、
+      イメージ内の /usr/share/doc/ffmpeg/copyright（および依存ライブラリの copyright ファイル）をご確認ください。
+      ビルドしたイメージを第三者に配布する場合は、GPL などの条件（ソースコードの入手方法の提示など）に従う必要があります。
+    - Node.js で直接インストールする場合は、OS の ffmpeg を管理者が用意します。
+    - デスクトップアプリは ffmpeg のコマンドを同梱しません（Electron 内部のライブラリについては 4 章）。
+
+(2) PostgreSQL 16（データベース）
+    別途インストールして使います（付属の docker compose 例では公式イメージ postgres:16 を取得します）。
+    ライセンス: PostgreSQL License（https://www.postgresql.org/about/licence/）
+
+(3) Docker イメージの土台（付属の Dockerfile を使う場合）
+    node:22-bookworm-slim（Node.js と Debian のパッケージ）、tini、ca-certificates などを、イメージを作るときに取得します。
+    これらは MeetLedger のファイルには含まれません。各ライセンスは、イメージ内の /usr/share/doc/*/copyright と
+    Node.js の LICENSE（https://github.com/nodejs/node/blob/main/LICENSE）をご確認ください。
+
+
+4. デスクトップアプリ・ローカル文字起こしに含まれるランタイム
+------------------------------------------------------------------------------
+
+(1) Electron 44.5.1（デスクトップアプリの実行環境）
+    ライセンス: MIT
+    Copyright (c) Electron contributors
+    Copyright (c) 2013-2020 GitHub Inc.
+    Electron には Chromium と Node.js が含まれます。それらと、それらが使うライブラリ（Chromium のメディア再生用
+    FFmpeg ライブラリ（libffmpeg / ffmpeg.dll。主に LGPL-2.1 以降）など）のライセンスは、Electron に同梱されている
+    LICENSES.chromium.html に記載されています。
+    パッケージ版のアプリ（インストーラー）にこのファイルと Electron の LICENSE が含まれていることを、配布前に
+    確認してください（要確認: パッケージ版での同梱は未検証）。
+    Electron は開発用の依存（devDependencies）として管理されているため、5 章の npm 一覧には出てきません。
+
+(2) ONNX Runtime 1.28.2（AIモデルの実行ライブラリ。Microsoft）
+    Copyright (c) Microsoft Corporation
+    ライセンス: MIT License
+    sherpa-onnx の OS 別パッケージ（sherpa-onnx-<OS>-<CPU>）の中に共有ライブラリ（libonnxruntime など）として
+    含まれ、サーバーのローカル文字起こしとデスクトップアプリの両方で使われます。バージョンは開発環境
+    （Linux x64）のパッケージで確認したものです。ONNX Runtime 自身の第三者ライセンス表示（ThirdPartyNotices）の
+    同梱が必要かどうかは要確認です（https://github.com/microsoft/onnxruntime）。
+
+(3) sherpa-onnx（文字起こし・話者分離の実行エンジン。The next-gen Kaldi team）
+    ライセンス: Apache-2.0（5 章の一覧の sherpa-onnx-node / sherpa-onnx-<OS>-<CPU>）
+    https://github.com/k2-fsa/sherpa-onnx
+    npm パッケージには LICENSE ファイルが含まれていないため、Apache-2.0 の本文を 9 章に掲載しています。
+
+
+5. npm パッケージ一覧
+------------------------------------------------------------------------------
+
+各項目は「パッケージ名 バージョン — ライセンス」の順です。その下に著作権表示（または作者）を記載しています。
+
+5-1. サーバー（apps/server）（182 件）
+
+    Docker イメージ、または Node.js で直接動かすサーバーにインストールされる実行時の依存パッケージです。
+    この一覧は Linux x64 の環境で作成しました。OS 別パッケージ（sherpa-onnx-linux-x64）は、ARM の Linux では
+    sherpa-onnx-linux-arm64、macOS / Windows では sherpa-onnx-darwin-* / sherpa-onnx-win-* になります（同じ Apache-2.0）。
+
+  - @fastify/accept-negotiator 2.1.0 — MIT
+      Copyright (c) 2022-present The Fastify team <https://github.com/fastify/fastify#team>
+      https://github.com/fastify/accept-negotiator
+  - @fastify/ajv-compiler 4.0.6 — MIT
+      Copyright (c) 2022-present The Fastify team <https://github.com/fastify/fastify#team>
+      https://github.com/fastify/ajv-compiler
+  - @fastify/busboy 3.2.2 — MIT
+      Copyright Brian White. All rights reserved.
+      Copyright (c) 2021-present The Fastify team <https://github.com/fastify/fastify#team>
+      https://github.com/fastify/busboy
+  - @fastify/cookie 11.1.2 — MIT
+      Copyright (c) 2017-present The Fastify team <https://github.com/fastify/fastify#team>
+      https://github.com/fastify/fastify-cookie
+  - @fastify/deepmerge 3.2.1 — MIT
+      Copyright (c) 2022-present The Fastify team
+      https://github.com/fastify/deepmerge
+  - @fastify/error 4.2.0 — MIT
+      Copyright (c) 2020 Fastify
+      https://github.com/fastify/fastify-error
+  - @fastify/fast-json-stringify-compiler 5.1.0 — MIT
+      Copyright (c) 2022-present The Fastify team <https://github.com/fastify/fastify#team>
+      https://github.com/fastify/fast-json-stringify-compiler
+  - @fastify/forwarded 3.0.2 — MIT
+      Copyright (c) 2014-2017 Douglas Christopher Wilson
+      Copyright (c) 2021-present The Fastify team <https://github.com/fastify/fastify#team>
+      https://github.com/fastify/forwarded
+  - @fastify/helmet 13.1.1 — MIT
+      Copyright (c) 2017-present The Fastify team <https://github.com/fastify/fastify#team>
+      Copyright (c) 2012-2017 Evan Hahn, Adam Baldwin
+      https://github.com/fastify/fastify-helmet
+  - @fastify/merge-json-schemas 0.2.1 — MIT
+      Copyright (c) 2024 Fastify
+      https://github.com/fastify/merge-json-schemas
+  - @fastify/multipart 10.1.2 — MIT
+      Copyright (c) 2017-present The Fastify team <https://github.com/fastify/fastify#team>
+      https://github.com/fastify/fastify-multipart
+  - @fastify/proxy-addr 5.1.1 — MIT
+      Copyright (c) 2014-2016 Douglas Christopher Wilson
+      Copyright (c) 2021-present The Fastify team <https://github.com/fastify/fastify#team>
+      https://github.com/fastify/proxy-addr
+  - @fastify/rate-limit 11.2.0 — MIT
+      Copyright (c) 2018-present The Fastify team <https://github.com/fastify/fastify#team>
+      https://github.com/fastify/fastify-rate-limit
+  - @fastify/send 4.1.1 — MIT
+      Copyright (c) 2012 TJ Holowaychuk
+      Copyright (c) 2014-2022 Douglas Christopher Wilson
+      Copyright (c) 2023-present The Fastify team <https://github.com/fastify/fastify#team>
+      https://github.com/fastify/send
+  - @fastify/static 10.1.5 — MIT
+      Copyright (c) 2017-present The Fastify team <https://github.com/fastify/fastify#team>
+      https://github.com/fastify/fastify-static
+  - @hono/node-server 1.19.17 — MIT
+      Copyright (c) 2022 - present, Yusuke Wada and Hono contributors
+      https://github.com/honojs/node-server
+  - @hono/node-server 2.1.3 — MIT
+      Copyright (c) 2022 - present, Yusuke Wada and Hono contributors
+      https://github.com/honojs/node-server
+  - @isaacs/fs-minipass 4.0.1 — ISC
+      Copyright (c) Isaac Z. Schlueter and Contributors
+      https://github.com/npm/fs-minipass
+  - @lukeed/ms 2.0.2 — MIT
+      Copyright (c) Luke Edwards <luke.edwards05@gmail.com> (lukeed.com)
+      https://github.com/lukeed/ms
+  - @modelcontextprotocol/core 2.2.0 — MIT
+      Copyright (c) 2024-2025 Model Context Protocol a Series of LF Projects, LLC.
+      ※ LICENSE ファイルには Apache License 2.0 の本文も含まれています（全文は 7 章）
+      https://github.com/modelcontextprotocol/typescript-sdk
+  - @modelcontextprotocol/node 2.1.0 — MIT
+      Copyright (c) 2024-2025 Model Context Protocol a Series of LF Projects, LLC.
+      ※ LICENSE ファイルには Apache License 2.0 の本文も含まれています（全文は 7 章）
+      https://github.com/modelcontextprotocol/typescript-sdk
+  - @modelcontextprotocol/sdk 1.31.0 — MIT
+      Copyright (c) 2024 Anthropic, PBC
+      https://github.com/modelcontextprotocol/typescript-sdk
+  - @modelcontextprotocol/server 2.2.0 — MIT
+      Copyright (c) 2024-2025 Model Context Protocol a Series of LF Projects, LLC.
+      ※ LICENSE ファイルには Apache License 2.0 の本文も含まれています（全文は 7 章）
+      https://github.com/modelcontextprotocol/typescript-sdk
+  - @pinojs/redact 0.4.0 — MIT
+      Copyright (c) 2025 pinojs contributors
+      https://github.com/pinojs/redact
+  - abstract-logging 2.0.1 — MIT
+      作者: James Sumners
+      （パッケージに LICENSE ファイルが含まれていません）
+      https://github.com/jsumners/abstract-logging
+  - accepts 2.0.0 — MIT
+      Copyright (c) 2014 Jonathan Ong <me@jongleberry.com>
+      Copyright (c) 2015 Douglas Christopher Wilson <doug@somethingdoug.com>
+      https://github.com/jshttp/accepts
+  - ajv 8.20.0 — MIT
+      Copyright (c) 2015-2021 Evgeny Poberezkin
+      https://github.com/ajv-validator/ajv
+  - ajv-formats 3.0.1 — MIT
+      Copyright (c) 2020 Evgeny Poberezkin
+      https://github.com/ajv-validator/ajv-formats
+  - atomic-sleep 1.0.0 — MIT
+      Copyright (c) 2020 David Mark Clements
+      https://github.com/davidmarkclements/atomic-sleep
+  - avvio 9.3.0 — MIT
+      Copyright (c) 2016-2020 Matteo Collina
+      Copyright (c) 2020-present The Fastify team <https://github.com/fastify/fastify#team>
+      https://github.com/fastify/avvio
+  - balanced-match 4.0.4 — MIT
+      Original code Copyright Julian Gruber <julian@juliangruber.com>
+      Port to TypeScript Copyright Isaac Z. Schlueter <i@izs.me>
+      https://github.com/juliangruber/balanced-match
+  - body-parser 2.3.0 — MIT
+      Copyright (c) 2014 Jonathan Ong <me@jongleberry.com>
+      Copyright (c) 2014-2015 Douglas Christopher Wilson <doug@somethingdoug.com>
+      https://github.com/expressjs/body-parser
+  - brace-expansion 5.0.12 — MIT
+      Copyright Julian Gruber <julian@juliangruber.com>
+      https://github.com/juliangruber/brace-expansion
+  - bytes 3.1.2 — MIT
+      Copyright (c) 2012-2014 TJ Holowaychuk <tj@vision-media.ca>
+      Copyright (c) 2015 Jed Watson <jed.watson@me.com>
+      https://github.com/visionmedia/bytes.js
+  - call-bind-apply-helpers 1.0.2 — MIT
+      Copyright (c) 2024 Jordan Harband
+      https://github.com/ljharb/call-bind-apply-helpers
+  - call-bound 1.0.4 — MIT
+      Copyright (c) 2024 Jordan Harband
+      https://github.com/ljharb/call-bound
+  - chownr 3.0.0 — BlueOak-1.0.0
+      作者: Isaac Z. Schlueter
+      https://github.com/isaacs/chownr
+  - content-disposition 1.1.0 — MIT
+      Copyright (c) 2014-2017 Douglas Christopher Wilson
+      https://github.com/jshttp/content-disposition
+  - content-disposition 3.0.0 — MIT
+      Copyright (c) 2014-2017 Douglas Christopher Wilson
+      https://github.com/jshttp/content-disposition
+  - content-type 1.0.5 — MIT
+      Copyright (c) 2015 Douglas Christopher Wilson
+      https://github.com/jshttp/content-type
+  - content-type 2.1.0 — MIT
+      Copyright (c) 2015 Douglas Christopher Wilson
+      https://github.com/jshttp/content-type
+  - cookie 0.7.2 — MIT
+      Copyright (c) 2012-2014 Roman Shtylman <shtylman@gmail.com>
+      Copyright (c) 2015 Douglas Christopher Wilson <doug@somethingdoug.com>
+      https://github.com/jshttp/cookie
+  - cookie 1.1.1 — MIT
+      Copyright (c) 2012-2014 Roman Shtylman <shtylman@gmail.com>
+      Copyright (c) 2015 Douglas Christopher Wilson <doug@somethingdoug.com>
+      https://github.com/jshttp/cookie
+  - cookie 2.0.1 — MIT
+      Copyright (c) 2012-2014 Roman Shtylman <shtylman@gmail.com>
+      Copyright (c) 2015 Douglas Christopher Wilson <doug@somethingdoug.com>
+      https://github.com/jshttp/cookie
+  - cookie-signature 1.2.2 — MIT
+      Copyright (c) 2012–2024 LearnBoost <tj@learnboost.com> and other contributors;
+      https://github.com/visionmedia/node-cookie-signature
+  - cors 2.8.6 — MIT
+      Copyright (c) 2013 Troy Goode <troygoode@gmail.com>
+      https://github.com/expressjs/cors
+  - cross-spawn 7.0.6 — MIT
+      Copyright (c) 2018 Made With MOXY Lda <hello@moxy.studio>
+      https://github.com/moxystudio/node-cross-spawn
+  - debug 4.4.3 — MIT
+      Copyright (c) 2014-2017 TJ Holowaychuk <tj@vision-media.ca>
+      Copyright (c) 2018-2021 Josh Junon
+      https://github.com/debug-js/debug
+  - depd 2.0.0 — MIT
+      Copyright (c) 2014-2018 Douglas Christopher Wilson
+      https://github.com/dougwilson/nodejs-depd
+  - dequal 2.0.3 — MIT
+      Copyright (c) Luke Edwards <luke.edwards05@gmail.com> (lukeed.com)
+      https://github.com/lukeed/dequal
+  - dunder-proto 1.0.1 — MIT
+      Copyright (c) 2024 ECMAScript Shims
+      https://github.com/es-shims/dunder-proto
+  - ee-first 1.1.1 — MIT
+      Copyright (c) 2014 Jonathan Ong me@jongleberry.com
+      https://github.com/jonathanong/ee-first
+  - encodeurl 2.0.0 — MIT
+      Copyright (c) 2016 Douglas Christopher Wilson
+      https://github.com/pillarjs/encodeurl
+  - es-define-property 1.0.1 — MIT
+      Copyright (c) 2024 Jordan Harband
+      https://github.com/ljharb/es-define-property
+  - es-errors 1.3.0 — MIT
+      Copyright (c) 2024 Jordan Harband
+      https://github.com/ljharb/es-errors
+  - es-object-atoms 1.1.2 — MIT
+      Copyright (c) 2024 Jordan Harband
+      https://github.com/ljharb/es-object-atoms
+  - escape-html 1.0.3 — MIT
+      Copyright (c) 2012-2013 TJ Holowaychuk
+      Copyright (c) 2015 Andreas Lubbe
+      Copyright (c) 2015 Tiancheng "Timothy" Gu
+      https://github.com/component/escape-html
+  - etag 1.8.1 — MIT
+      Copyright (c) 2014-2016 Douglas Christopher Wilson
+      https://github.com/jshttp/etag
+  - eventsource 3.0.7 — MIT
+      Copyright (c) EventSource GitHub organisation
+      https://github.com/EventSource/eventsource
+  - eventsource-parser 3.1.1 — MIT
+      Copyright (c) 2026 Espen Hovlandsdal <espen@hovlandsdal.com>
+      https://github.com/rexxars/eventsource-parser
+  - express 5.2.1 — MIT
+      Copyright (c) 2009-2014 TJ Holowaychuk <tj@vision-media.ca>
+      Copyright (c) 2013-2014 Roman Shtylman <shtylman+expressjs@gmail.com>
+      Copyright (c) 2014-2015 Douglas Christopher Wilson <doug@somethingdoug.com>
+      https://github.com/expressjs/express
+  - express-rate-limit 8.7.0 — MIT
+      Copyright 2023 Nathan Friedly, Vedant K
+      https://github.com/express-rate-limit/express-rate-limit
+  - fast-decode-uri-component 1.0.1 — MIT
+      Copyright (c) 2018 Tomas Della Vedova
+      Copyright (c) 2017 Justin Ridgewell
+      Copyright (c) 2008-2009 Bjoern Hoehrmann <bjoern@hoehrmann.de>
+      https://github.com/delvedor/fast-decode-uri-component
+  - fast-deep-equal 3.1.3 — MIT
+      Copyright (c) 2017 Evgeny Poberezkin
+      https://github.com/epoberezkin/fast-deep-equal
+  - fast-json-stringify 7.0.1 — MIT
+      Copyright (c) 2016-present Matteo Collina
+      Copyright (c) 2016-present The Fastify team <https://github.com/fastify/fastify#team>
+      https://github.com/fastify/fast-json-stringify
+  - fast-querystring 1.1.2 — MIT
+      Copyright (c) 2022 Yagiz Nizipli
+      https://github.com/anonrig/fast-querystring
+  - fast-uri 3.1.8 — BSD-3-Clause
+      Copyright (c) 2011-2021, Gary Court until https://github.com/garycourt/uri-js/commit/a1acf730b4bba3f1097c9f52e7d9d3aba8cdcaae
+      Copyright (c) 2021-present The Fastify team <https://github.com/fastify/fastify#team>
+      https://github.com/fastify/fast-uri
+  - fast-uri 4.2.1 — BSD-3-Clause
+      Copyright (c) 2011-2021, Gary Court until https://github.com/garycourt/uri-js/commit/a1acf730b4bba3f1097c9f52e7d9d3aba8cdcaae
+      Copyright (c) 2021-present The Fastify team <https://github.com/fastify/fastify#team>
+      https://github.com/fastify/fast-uri
+  - fastify 5.12.5 — MIT
+      Copyright (c) 2016-present The Fastify team <https://github.com/fastify/fastify#team>
+      https://github.com/fastify/fastify
+  - fastify-plugin 6.0.0 — MIT
+      Copyright (c) 2017-present The Fastify team <https://github.com/fastify/fastify#team>
+      https://github.com/fastify/fastify-plugin
+  - fastq 1.20.3 — ISC
+      Copyright (c) 2015-2020, Matteo Collina <matteo.collina@gmail.com>
+      https://github.com/mcollina/fastq
+  - finalhandler 2.1.1 — MIT
+      Copyright (c) 2014-2022 Douglas Christopher Wilson <doug@somethingdoug.com>
+      https://github.com/pillarjs/finalhandler
+  - find-my-way 9.9.0 — MIT
+      Copyright (c) 2017-2019 Tomas Della Vedova
+      https://github.com/delvedor/find-my-way
+  - forwarded 0.2.0 — MIT
+      Copyright (c) 2014-2017 Douglas Christopher Wilson
+      https://github.com/jshttp/forwarded
+  - fresh 2.0.0 — MIT
+      Copyright (c) 2012 TJ Holowaychuk <tj@vision-media.ca>
+      Copyright (c) 2016-2017 Douglas Christopher Wilson <doug@somethingdoug.com>
+      https://github.com/jshttp/fresh
+  - function-bind 1.1.2 — MIT
+      Copyright (c) 2013 Raynos.
+      https://github.com/Raynos/function-bind
+  - get-intrinsic 1.3.0 — MIT
+      Copyright (c) 2020 Jordan Harband
+      https://github.com/ljharb/get-intrinsic
+  - get-proto 1.0.1 — MIT
+      Copyright (c) 2025 Jordan Harband
+      https://github.com/ljharb/get-proto
+  - glob 13.0.6 — BlueOak-1.0.0
+      作者: Isaac Z. Schlueter
+      https://github.com/isaacs/node-glob
+  - gopd 1.2.0 — MIT
+      Copyright (c) 2022 Jordan Harband
+      https://github.com/ljharb/gopd
+  - has-symbols 1.1.0 — MIT
+      Copyright (c) 2016 Jordan Harband
+      https://github.com/inspect-js/has-symbols
+  - hasown 2.0.4 — MIT
+      Copyright (c) Jordan Harband and contributors
+      https://github.com/inspect-js/hasOwn
+  - helmet 8.3.0 — MIT
+      Copyright (c) 2012-2026 Evan Hahn, Adam Baldwin
+      https://github.com/helmetjs/helmet
+  - hono 4.13.12 — MIT
+      Copyright (c) 2021 - present, Yusuke Wada and Hono contributors
+      https://github.com/honojs/hono
+  - http-errors 2.0.1 — MIT
+      Copyright (c) 2014 Jonathan Ong me@jongleberry.com
+      Copyright (c) 2016 Douglas Christopher Wilson doug@somethingdoug.com
+      https://github.com/jshttp/http-errors
+  - iconv-lite 0.7.3 — MIT
+      Copyright (c) 2011 Alexander Shtuchkin
+      https://github.com/pillarjs/iconv-lite
+  - inherits 2.0.4 — ISC
+      Copyright (c) Isaac Z. Schlueter
+      https://github.com/isaacs/inherits
+  - ip-address 10.7.3 — MIT
+      Copyright (C) 2011 by Beau Gunderson
+      https://github.com/beaugunderson/ip-address
+  - ipaddr.js 1.9.1 — MIT
+      Copyright (C) 2011-2017 whitequark <whitequark@whitequark.org>
+      https://github.com/whitequark/ipaddr.js
+  - ipaddr.js 2.5.0 — MIT
+      Copyright (C) 2011-2017 whitequark <whitequark@whitequark.org>
+      https://github.com/whitequark/ipaddr.js
+  - is-promise 4.0.0 — MIT
+      Copyright (c) 2014 Forbes Lindesay
+      https://github.com/then/is-promise
+  - isexe 2.0.0 — ISC
+      Copyright (c) Isaac Z. Schlueter and Contributors
+      https://github.com/isaacs/isexe
+  - jose 6.2.12 — MIT
+      Copyright (c) 2018 Filip Skokan
+      https://github.com/panva/jose
+  - json-schema-ref-resolver 3.0.0 — MIT
+      Copyright (c) 2023 Fastify
+      https://github.com/fastify/json-schema-ref-resolver
+  - json-schema-traverse 1.0.0 — MIT
+      Copyright (c) 2017 Evgeny Poberezkin
+      https://github.com/epoberezkin/json-schema-traverse
+  - json-schema-typed 8.0.2 — BSD-2-Clause
+      作者: Remy Rylan
+      https://github.com/RemyRylan/json-schema-typed
+  - light-my-request 6.6.0 — BSD-3-Clause
+      Copyright (c) 2017 The Fastify Team
+      Copyright (c) 2012-2017, Project contributors
+      Copyright (c) 2012-2014, Walmart
+      https://github.com/fastify/light-my-request
+  - lru-cache 11.5.3 — BlueOak-1.0.0
+      作者: Isaac Z. Schlueter
+      https://github.com/isaacs/node-lru-cache
+  - math-intrinsics 1.1.0 — MIT
+      Copyright (c) 2024 ECMAScript Shims
+      https://github.com/es-shims/math-intrinsics
+  - media-typer 1.1.1 — MIT
+      Copyright (c) 2014-2017 Douglas Christopher Wilson
+      https://github.com/jshttp/media-typer
+  - merge-descriptors 2.0.0 — MIT
+      Copyright (c) Jonathan Ong <me@jongleberry.com>
+      Copyright (c) Douglas Christopher Wilson <doug@somethingdoug.com>
+      Copyright (c) Sindre Sorhus <sindresorhus@gmail.com> (https://sindresorhus.com)
+      https://github.com/sindresorhus/merge-descriptors
+  - mime 3.0.0 — MIT
+      Copyright (c) 2010 Benjamin Thomas, Robert Kieffer
+      https://github.com/broofa/mime
+  - mime-db 1.54.0 — MIT
+      Copyright (c) 2014 Jonathan Ong <me@jongleberry.com>
+      Copyright (c) 2015-2022 Douglas Christopher Wilson <doug@somethingdoug.com>
+      https://github.com/jshttp/mime-db
+  - mime-types 3.0.2 — MIT
+      Copyright (c) 2014 Jonathan Ong <me@jongleberry.com>
+      Copyright (c) 2015 Douglas Christopher Wilson <doug@somethingdoug.com>
+      https://github.com/jshttp/mime-types
+  - minimatch 10.2.6 — BlueOak-1.0.0
+      作者: Isaac Z. Schlueter
+      https://github.com/isaacs/minimatch
+  - minipass 7.1.3 — BlueOak-1.0.0
+      作者: Isaac Z. Schlueter
+      https://github.com/isaacs/minipass
+  - minizlib 3.1.0 — MIT
+      Copyright (c) 2017-2023 Isaac Z. Schlueter and Contributors
+      Copyright (c) 2017-2023 Node.js contributors. All rights reserved.
+      Copyright (c) 2017-2023 Joyent, Inc. and other Node contributors. All rights reserved.
+      https://github.com/isaacs/minizlib
+  - ms 2.1.3 — MIT
+      Copyright (c) 2020 Vercel, Inc.
+      https://github.com/vercel/ms
+  - negotiator 1.1.0 — MIT
+      Copyright (c) 2012-2014 Federico Romero
+      Copyright (c) 2012-2014 Isaac Z. Schlueter
+      Copyright (c) 2014-2015 Douglas Christopher Wilson
+      https://github.com/jshttp/negotiator
+  - nodemailer 10.0.13 — MIT-0
+      Copyright (c) 2011-2023 Andris Reinman
+      https://github.com/nodemailer/nodemailer
+  - object-assign 4.1.1 — MIT
+      Copyright (c) Sindre Sorhus <sindresorhus@gmail.com> (sindresorhus.com)
+      https://github.com/sindresorhus/object-assign
+  - object-inspect 1.13.4 — MIT
+      Copyright (c) 2013 James Halliday
+      https://github.com/inspect-js/object-inspect
+  - on-exit-leak-free 2.1.2 — MIT
+      Copyright (c) 2021 Matteo Collina
+      https://github.com/mcollina/on-exit-or-gc
+  - on-finished 2.4.1 — MIT
+      Copyright (c) 2013 Jonathan Ong <me@jongleberry.com>
+      Copyright (c) 2014 Douglas Christopher Wilson <doug@somethingdoug.com>
+      https://github.com/jshttp/on-finished
+  - once 1.4.0 — ISC
+      Copyright (c) Isaac Z. Schlueter and Contributors
+      https://github.com/isaacs/once
+  - parseurl 1.3.3 — MIT
+      Copyright (c) 2014 Jonathan Ong <me@jongleberry.com>
+      Copyright (c) 2014-2017 Douglas Christopher Wilson <doug@somethingdoug.com>
+      https://github.com/pillarjs/parseurl
+  - path-key 3.1.1 — MIT
+      Copyright (c) Sindre Sorhus <sindresorhus@gmail.com> (sindresorhus.com)
+      https://github.com/sindresorhus/path-key
+  - path-scurry 2.0.2 — BlueOak-1.0.0
+      作者: Isaac Z. Schlueter
+      https://github.com/isaacs/path-scurry
+  - path-to-regexp 8.4.2 — MIT
+      Copyright (c) 2014 Blake Embrey (hello@blakeembrey.com)
+      https://github.com/pillarjs/path-to-regexp
+  - pg 8.23.1 — MIT
+      Copyright (c) 2010 - 2021 Brian Carlson
+      https://github.com/brianc/node-postgres
+  - pg-cloudflare 1.4.1 — MIT
+      Copyright (c) 2010 - 2021 Brian Carlson
+      https://github.com/brianc/node-postgres
+  - pg-connection-string 2.14.1 — MIT
+      Copyright (c) 2014 Iced Development
+      https://github.com/brianc/node-postgres
+  - pg-int8 1.0.1 — ISC
+      Copyright © 2017, Charmander <~@charmander.me>
+      https://github.com/charmander/pg-int8
+  - pg-pool 3.14.0 — MIT
+      Copyright (c) 2017 Brian M. Carlson
+      https://github.com/brianc/node-postgres
+  - pg-protocol 1.16.1 — MIT
+      Copyright (c) 2010 - 2021 Brian Carlson
+      https://github.com/brianc/node-postgres
+  - pg-types 2.2.0 — MIT
+      作者: Brian M. Carlson
+      （パッケージに LICENSE ファイルが含まれていません）
+      https://github.com/brianc/node-pg-types
+  - pgpass 1.0.5 — MIT
+      作者: Hannes Hörl
+      （パッケージに LICENSE ファイルが含まれていません）
+      https://github.com/hoegaarden/pgpass
+  - pino 10.3.1 — MIT
+      Copyright (c) 2016-2025 Matteo Collina, David Mark Clements and the Pino contributors listed at <https://github.com/pinojs/pino#the-team> and in the README file.
+      https://github.com/pinojs/pino
+  - pino-abstract-transport 3.0.0 — MIT
+      Copyright (c) 2021 pino
+      https://github.com/pinojs/pino-abstract-transport
+  - pino-std-serializers 7.1.0 — MIT
+      Copyright Mateo Collina, David Mark Clements, James Sumners
+      https://github.com/pinojs/pino-std-serializers
+  - pkce-challenge 5.0.1 — MIT
+      Copyright (c) 2019
+      https://github.com/crouchcd/pkce-challenge
+  - postgres-array 2.0.0 — MIT
+      Copyright (c) Ben Drucker <bvdrucker@gmail.com> (bendrucker.me)
+      https://github.com/bendrucker/postgres-array
+  - postgres-bytea 1.0.1 — MIT
+      Copyright (c) Ben Drucker <bvdrucker@gmail.com> (bendrucker.me)
+      https://github.com/bendrucker/postgres-bytea
+  - postgres-date 1.0.7 — MIT
+      Copyright (c) Ben Drucker <bvdrucker@gmail.com> (bendrucker.me)
+      https://github.com/bendrucker/postgres-date
+  - postgres-interval 1.2.0 — MIT
+      Copyright (c) Ben Drucker <bvdrucker@gmail.com> (bendrucker.me)
+      https://github.com/bendrucker/postgres-interval
+  - process-warning 4.0.1 — MIT
+      Copyright (c) Fastify
+      https://github.com/fastify/process-warning
+  - process-warning 5.1.0 — MIT
+      Copyright (c) 2020-present The Fastify team <https://github.com/fastify/fastify#team>
+      https://github.com/fastify/process-warning
+  - proxy-addr 2.0.8 — MIT
+      Copyright (c) 2014-2016 Douglas Christopher Wilson
+      https://github.com/jshttp/proxy-addr
+  - qs 6.16.0 — BSD-3-Clause
+      Copyright (c) 2014, Nathan LaFreniere and other [contributors](https://github.com/ljharb/qs/graphs/contributors)
+      https://github.com/ljharb/qs
+  - quick-format-unescaped 4.0.4 — MIT
+      Copyright (c) 2016-2019 David Mark Clements
+      https://github.com/davidmarkclements/quick-format
+  - range-parser 1.3.0 — MIT
+      Copyright (c) 2012-2014 TJ Holowaychuk <tj@vision-media.ca>
+      Copyright (c) 2015-2016 Douglas Christopher Wilson <doug@somethingdoug.com
+      https://github.com/jshttp/range-parser
+  - raw-body 3.0.2 — MIT
+      Copyright (c) 2013-2014 Jonathan Ong <me@jongleberry.com>
+      Copyright (c) 2014-2022 Douglas Christopher Wilson <doug@somethingdoug.com>
+      https://github.com/stream-utils/raw-body
+  - real-require 0.2.0 — MIT
+      Copyright (c) 2021 Paolo Insogna and the real-require contributors
+      https://github.com/pinojs/real-require
+  - real-require 1.0.0 — MIT
+      Copyright (c) 2021 Paolo Insogna and the real-require contributors
+      https://github.com/pinojs/real-require
+  - require-from-string 2.0.2 — MIT
+      Copyright (c) Vsevolod Strukchinsky <floatdrop@gmail.com> (github.com/floatdrop)
+      https://github.com/floatdrop/require-from-string
+  - ret 0.5.0 — MIT
+      Copyright (C) 2011 by fent
+      https://github.com/fent/ret.js
+  - reusify 1.1.0 — MIT
+      Copyright (c) 2015-2024 Matteo Collina
+      https://github.com/mcollina/reusify
+  - rfdc 1.4.1 — MIT
+      Copyright 2019 "David Mark Clements <david.mark.clements@gmail.com>"
+      https://github.com/davidmarkclements/rfdc
+  - router 2.2.0 — MIT
+      Copyright (c) 2013 Roman Shtylman
+      Copyright (c) 2014-2022 Douglas Christopher Wilson
+      https://github.com/pillarjs/router
+  - safe-regex2 5.1.1 — MIT
+      Copyright (c) 2019-present The Fastify team <https://github.com/fastify/fastify#team>
+      https://github.com/fastify/safe-regex2
+  - safe-stable-stringify 2.5.0 — MIT
+      Copyright (c) Ruben Bridgewater
+      https://github.com/BridgeAR/safe-stable-stringify
+  - safer-buffer 2.1.2 — MIT
+      Copyright (c) 2018 Nikita Skovoroda <chalkerx@gmail.com>
+      https://github.com/ChALkeR/safer-buffer
+  - secure-json-parse 4.1.0 — BSD-3-Clause
+      Copyright (c) 2019, Sideway Inc, and project contributors
+      Copyright (c) 2019-present The Fastify team
+      https://github.com/fastify/secure-json-parse
+  - semver 7.8.5 — ISC
+      Copyright (c) Isaac Z. Schlueter and Contributors
+      https://github.com/npm/node-semver
+  - send 1.2.1 — MIT
+      Copyright (c) 2012 TJ Holowaychuk
+      Copyright (c) 2014-2022 Douglas Christopher Wilson
+      https://github.com/pillarjs/send
+  - serve-static 2.2.1 — MIT
+      Copyright (c) 2010 Sencha Inc.
+      Copyright (c) 2011 LearnBoost
+      Copyright (c) 2011 TJ Holowaychuk
+      Copyright (c) 2014-2016 Douglas Christopher Wilson
+      https://github.com/expressjs/serve-static
+  - set-cookie-parser 2.7.2 — MIT
+      Copyright (c) 2015 Nathan Friedly <nathan@nfriedly.com> (http://nfriedly.com/)
+      https://github.com/nfriedly/set-cookie-parser
+  - setprototypeof 1.2.0 — ISC
+      Copyright (c) 2015, Wes Todd
+      https://github.com/wesleytodd/setprototypeof
+  - shebang-command 2.0.0 — MIT
+      Copyright (c) Kevin Mårtensson <kevinmartensson@gmail.com> (github.com/kevva)
+      https://github.com/kevva/shebang-command
+  - shebang-regex 3.0.0 — MIT
+      Copyright (c) Sindre Sorhus <sindresorhus@gmail.com> (sindresorhus.com)
+      https://github.com/sindresorhus/shebang-regex
+  - sherpa-onnx-linux-x64 1.13.8 — Apache-2.0
+      作者: The next-gen Kaldi team
+      （パッケージに LICENSE ファイルが含まれていません）
+      https://github.com/csukuangfj/sherpa-onnx
+  - sherpa-onnx-node 1.13.8 — Apache-2.0
+      作者: The next-gen Kaldi team
+      （パッケージに LICENSE ファイルが含まれていません）
+      https://github.com/csukuangfj/sherpa-onnx
+  - side-channel 1.1.1 — MIT
+      Copyright (c) 2019 Jordan Harband
+      https://github.com/ljharb/side-channel
+  - side-channel-list 1.0.1 — MIT
+      Copyright (c) 2024 Jordan Harband
+      https://github.com/ljharb/side-channel-list
+  - side-channel-map 1.0.1 — MIT
+      Copyright (c) 2024 Jordan Harband
+      https://github.com/ljharb/side-channel-map
+  - side-channel-weakmap 1.0.2 — MIT
+      Copyright (c) 2019 Jordan Harband
+      https://github.com/ljharb/side-channel-weakmap
+  - sonic-boom 4.2.1 — MIT
+      Copyright (c) 2017 Matteo Collina
+      https://github.com/pinojs/sonic-boom
+  - split2 4.2.0 — ISC
+      Copyright (c) 2014-2018, Matteo Collina <hello@matteocollina.com>
+      https://github.com/mcollina/split2
+  - statuses 2.0.2 — MIT
+      Copyright (c) 2014 Jonathan Ong <me@jongleberry.com>
+      Copyright (c) 2016 Douglas Christopher Wilson <doug@somethingdoug.com>
+      https://github.com/jshttp/statuses
+  - tar 7.5.22 — BlueOak-1.0.0
+      作者: Isaac Z. Schlueter
+      https://github.com/isaacs/node-tar
+  - thread-stream 4.2.0 — MIT
+      Copyright (c) 2021 Matteo Collina
+      https://github.com/mcollina/thread-stream
+  - toad-cache 3.7.4 — MIT
+      Copyright (c) 2023 Igor Savin
+      https://github.com/kibertoad/toad-cache
+  - toidentifier 1.0.1 — MIT
+      Copyright (c) 2016 Douglas Christopher Wilson <doug@somethingdoug.com>
+      https://github.com/component/toidentifier
+  - type-is 2.1.0 — MIT
+      Copyright (c) 2014 Jonathan Ong <me@jongleberry.com>
+      Copyright (c) 2014-2015 Douglas Christopher Wilson <doug@somethingdoug.com>
+      https://github.com/jshttp/type-is
+  - unpipe 1.0.0 — MIT
+      Copyright (c) 2015 Douglas Christopher Wilson <doug@somethingdoug.com>
+      https://github.com/stream-utils/unpipe
+  - vary 1.1.2 — MIT
+      Copyright (c) 2014-2017 Douglas Christopher Wilson
+      https://github.com/jshttp/vary
+  - which 2.0.2 — ISC
+      Copyright (c) Isaac Z. Schlueter and Contributors
+      https://github.com/isaacs/node-which
+  - wrappy 1.0.2 — ISC
+      Copyright (c) Isaac Z. Schlueter and Contributors
+      https://github.com/npm/wrappy
+  - xtend 4.0.2 — MIT
+      Copyright (c) 2012-2014 Raynos.
+      https://github.com/Raynos/xtend
+  - yallist 5.0.0 — BlueOak-1.0.0
+      作者: Isaac Z. Schlueter
+      https://github.com/isaacs/yallist
+  - zod 4.6.5 — MIT
+      Copyright (c) 2025 Colin McDonnell
+      https://github.com/colinhacks/zod
+  - zod-to-json-schema 3.25.2 — ISC
+      Copyright (c) 2020, Stefan Terdell
+      https://github.com/StefanTerdell/zod-to-json-schema
+
+5-2. Web アプリ・PWA（apps/web）（7 件）
+
+    ブラウザに配信される JavaScript に組み込まれる実行時の依存パッケージ（react / react-dom / react-router-dom とその依存）です。
+
+  - cookie 1.1.1 — MIT
+      Copyright (c) 2012-2014 Roman Shtylman <shtylman@gmail.com>
+      Copyright (c) 2015 Douglas Christopher Wilson <doug@somethingdoug.com>
+      https://github.com/jshttp/cookie
+  - react 19.3.0 — MIT
+      Copyright (c) Meta Platforms, Inc. and affiliates.
+      https://github.com/react/react
+  - react-dom 19.3.0 — MIT
+      Copyright (c) Meta Platforms, Inc. and affiliates.
+      https://github.com/react/react
+  - react-router 7.18.4 — MIT
+      Copyright (c) React Training LLC 2015-2019
+      Copyright (c) Remix Software Inc. 2020-2021
+      Copyright (c) Shopify Inc. 2022-2023
+      https://github.com/remix-run/react-router
+  - react-router-dom 7.18.4 — MIT
+      Copyright (c) React Training LLC 2015-2019
+      Copyright (c) Remix Software Inc. 2020-2021
+      Copyright (c) Shopify Inc. 2022-2023
+      https://github.com/remix-run/react-router
+  - scheduler 0.28.0 — MIT
+      Copyright (c) Meta Platforms, Inc. and affiliates.
+      https://github.com/react/react
+  - set-cookie-parser 2.7.2 — MIT
+      Copyright (c) 2015 Nathan Friedly <nathan@nfriedly.com> (http://nfriedly.com/)
+      https://github.com/nfriedly/set-cookie-parser
+
+5-3. デスクトップアプリ（apps/desktop）（2 件）
+
+    デスクトップアプリの npm 実行時依存です。この一覧は開発環境（Linux x64）で作成したため、OS 別パッケージは sherpa-onnx-linux-x64 です。
+    Windows / macOS 版では、代わりに sherpa-onnx-win-x64 / sherpa-onnx-darwin-arm64 / sherpa-onnx-darwin-x64 が入ります（同じ Apache-2.0）。
+    Electron ランタイム（Chromium・Node.js を含む）は 4 章をご覧ください。
+
+  - sherpa-onnx-linux-x64 1.13.8 — Apache-2.0
+      作者: The next-gen Kaldi team
+      （パッケージに LICENSE ファイルが含まれていません）
+      https://github.com/csukuangfj/sherpa-onnx
+  - sherpa-onnx-node 1.13.8 — Apache-2.0
+      作者: The next-gen Kaldi team
+      （パッケージに LICENSE ファイルが含まれていません）
+      https://github.com/csukuangfj/sherpa-onnx
+
+
+6. ライセンス別の件数（5 章の重複を除いた件数）
+------------------------------------------------------------------------------
+
+  MIT                                     158 件
+  ISC                                     12 件
+  BlueOak-1.0.0                           8 件
+  BSD-3-Clause                            5 件
+  Apache-2.0                              2 件
+  BSD-2-Clause                            1 件
+  MIT-0                                   1 件
+
+  合計 187 件（サーバー 182 / Web・PWA 7 / デスクトップ 2、重複あり）
+
+
+7. MIT / ISC / BSD / Apache-2.0 以外のライセンスの本文
+------------------------------------------------------------------------------
+
+次のパッケージは、MIT / ISC / BSD / Apache-2.0 以外のライセンス（またはライセンス表記の無いもの）か、
+package.json の記載とは別のライセンスの本文を LICENSE ファイルに含むものです。
+パッケージに含まれる LICENSE ファイルの全文を掲載します（同じ本文のものはまとめて 1 回だけ掲載）。
+
+■ @modelcontextprotocol/core 2.2.0 — package.json の記載: MIT
+■ @modelcontextprotocol/node 2.1.0 — package.json の記載: MIT
+■ @modelcontextprotocol/server 2.2.0 — package.json の記載: MIT
+
+The MCP project is undergoing a licensing transition from the MIT License to the Apache License, Version 2.0 ("Apache-2.0"). All new code and specification contributions to the project are licensed under Apache-2.0. Documentation contributions (excluding specifications) are licensed under CC-BY-4.0.
+
+Contributions for which relicensing consent has been obtained are licensed under Apache-2.0. Contributions made by authors who originally licensed their work under the MIT License and who have not yet granted explicit permission to relicense remain licensed under the MIT License.
+
+No rights beyond those granted by the applicable original license are conveyed for such contributions.
+
+---
+
+                                 Apache License
+                           Version 2.0, January 2004
+                        http://www.apache.org/licenses/
+
+   TERMS AND CONDITIONS FOR USE, REPRODUCTION, AND DISTRIBUTION
+
+   1. Definitions.
+
+      "License" shall mean the terms and conditions for use, reproduction,
+      and distribution as defined by Sections 1 through 9 of this document.
+
+      "Licensor" shall mean the copyright owner or entity authorized by
+      the copyright owner that is granting the License.
+
+      "Legal Entity" shall mean the union of the acting entity and all
+      other entities that control, are controlled by, or are under common
+      control with that entity. For the purposes of this definition,
+      "control" means (i) the power, direct or indirect, to cause the
+      direction or management of such entity, whether by contract or
+      otherwise, or (ii) ownership of fifty percent (50%) or more of the
+      outstanding shares, or (iii) beneficial ownership of such entity.
+
+      "You" (or "Your") shall mean an individual or Legal Entity
+      exercising permissions granted by this License.
+
+      "Source" form shall mean the preferred form for making modifications,
+      including but not limited to software source code, documentation
+      source, and configuration files.
+
+      "Object" form shall mean any form resulting from mechanical
+      transformation or translation of a Source form, including but
+      not limited to compiled object code, generated documentation,
+      and conversions to other media types.
+
+      "Work" shall mean the work of authorship, whether in Source or
+      Object form, made available under the License, as indicated by a
+      copyright notice that is included in or attached to the work
+      (an example is provided in the Appendix below).
+
+      "Derivative Works" shall mean any work, whether in Source or Object
+      form, that is based on (or derived from) the Work and for which the
+      editorial revisions, annotations, elaborations, or other modifications
+      represent, as a whole, an original work of authorship. For the purposes
+      of this License, Derivative Works shall not include works that remain
+      separable from, or merely link (or bind by name) to the interfaces of,
+      the Work and Derivative Works thereof.
+
+      "Contribution" shall mean any work of authorship, including
+      the original version of the Work and any modifications or additions
+      to that Work or Derivative Works thereof, that is intentionally
+      submitted to the Licensor for inclusion in the Work by the copyright
+      owner or by an individual or Legal Entity authorized to submit on behalf
+      of the copyright owner. For the purposes of this definition, "submitted"
+      means any form of electronic, verbal, or written communication sent
+      to the Licensor or its representatives, including but not limited to
+      communication on electronic mailing lists, source code control systems,
+      and issue tracking systems that are managed by, or on behalf of, the
+      Licensor for the purpose of discussing and improving the Work, but
+      excluding communication that is conspicuously marked or otherwise
+      designated in writing by the copyright owner as "Not a Contribution."
+
+      "Contributor" shall mean Licensor and any individual or Legal Entity
+      on behalf of whom a Contribution has been received by Licensor and
+      subsequently incorporated within the Work.
+
+   2. Grant of Copyright License. Subject to the terms and conditions of
+      this License, each Contributor hereby grants to You a perpetual,
+      worldwide, non-exclusive, no-charge, royalty-free, irrevocable
+      copyright license to reproduce, prepare Derivative Works of,
+      publicly display, publicly perform, sublicense, and distribute the
+      Work and such Derivative Works in Source or Object form.
+
+   3. Grant of Patent License. Subject to the terms and conditions of
+      this License, each Contributor hereby grants to You a perpetual,
+      worldwide, non-exclusive, no-charge, royalty-free, irrevocable
+      (except as stated in this section) patent license to make, have made,
+      use, offer to sell, sell, import, and otherwise transfer the Work,
+      where such license applies only to those patent claims licensable
+      by such Contributor that are necessarily infringed by their
+      Contribution(s) alone or by combination of their Contribution(s)
+      with the Work to which such Contribution(s) was submitted. If You
+      institute patent litigation against any entity (including a
+      cross-claim or counterclaim in a lawsuit) alleging that the Work
+      or a Contribution incorporated within the Work constitutes direct
+      or contributory patent infringement, then any patent licenses
+      granted to You under this License for that Work shall terminate
+      as of the date such litigation is filed.
+
+   4. Redistribution. You may reproduce and distribute copies of the
+      Work or Derivative Works thereof in any medium, with or without
+      modifications, and in Source or Object form, provided that You
+      meet the following conditions:
+
+      (a) You must give any other recipients of the Work or
+          Derivative Works a copy of this License; and
+
+      (b) You must cause any modified files to carry prominent notices
+          stating that You changed the files; and
+
+      (c) You must retain, in the Source form of any Derivative Works
+          that You distribute, all copyright, patent, trademark, and
+          attribution notices from the Source form of the Work,
+          excluding those notices that do not pertain to any part of
+          the Derivative Works; and
+
+      (d) If the Work includes a "NOTICE" text file as part of its
+          distribution, then any Derivative Works that You distribute must
+          include a readable copy of the attribution notices contained
+          within such NOTICE file, excluding those notices that do not
+          pertain to any part of the Derivative Works, in at least one
+          of the following places: within a NOTICE text file distributed
+          as part of the Derivative Works; within the Source form or
+          documentation, if provided along with the Derivative Works; or,
+          within a display generated by the Derivative Works, if and
+          wherever such third-party notices normally appear. The contents
+          of the NOTICE file are for informational purposes only and
+          do not modify the License. You may add Your own attribution
+          notices within Derivative Works that You distribute, alongside
+          or as an addendum to the NOTICE text from the Work, provided
+          that such additional attribution notices cannot be construed
+          as modifying the License.
+
+      You may add Your own copyright statement to Your modifications and
+      may provide additional or different license terms and conditions
+      for use, reproduction, or distribution of Your modifications, or
+      for any such Derivative Works as a whole, provided Your use,
+      reproduction, and distribution of the Work otherwise complies with
+      the conditions stated in this License.
+
+   5. Submission of Contributions. Unless You explicitly state otherwise,
+      any Contribution intentionally submitted for inclusion in the Work
+      by You to the Licensor shall be under the terms and conditions of
+      this License, without any additional terms or conditions.
+      Notwithstanding the above, nothing herein shall supersede or modify
+      the terms of any separate license agreement you may have executed
+      with Licensor regarding such Contributions.
+
+   6. Trademarks. This License does not grant permission to use the trade
+      names, trademarks, service marks, or product names of the Licensor,
+      except as required for reasonable and customary use in describing the
+      origin of the Work and reproducing the content of the NOTICE file.
+
+   7. Disclaimer of Warranty. Unless required by applicable law or
+      agreed to in writing, Licensor provides the Work (and each
+      Contributor provides its Contributions) on an "AS IS" BASIS,
+      WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or
+      implied, including, without limitation, any warranties or conditions
+      of TITLE, NON-INFRINGEMENT, MERCHANTABILITY, or FITNESS FOR A
+      PARTICULAR PURPOSE. You are solely responsible for determining the
+      appropriateness of using or redistributing the Work and assume any
+      risks associated with Your exercise of permissions under this License.
+
+   8. Limitation of Liability. In no event and under no legal theory,
+      whether in tort (including negligence), contract, or otherwise,
+      unless required by applicable law (such as deliberate and grossly
+      negligent acts) or agreed to in writing, shall any Contributor be
+      liable to You for damages, including any direct, indirect, special,
+      incidental, or consequential damages of any character arising as a
+      result of this License or out of the use or inability to use the
+      Work (including but not limited to damages for loss of goodwill,
+      work stoppage, computer failure or malfunction, or any and all
+      other commercial damages or losses), even if such Contributor
+      has been advised of the possibility of such damages.
+
+   9. Accepting Warranty or Additional Liability. While redistributing
+      the Work or Derivative Works thereof, You may choose to offer,
+      and charge a fee for, acceptance of support, warranty, indemnity,
+      or other liability obligations and/or rights consistent with this
+      License. However, in accepting such obligations, You may act only
+      on Your own behalf and on Your sole responsibility, not on behalf
+      of any other Contributor, and only if You agree to indemnify,
+      defend, and hold each Contributor harmless for any liability
+      incurred by, or claims asserted against, such Contributor by reason
+      of your accepting any such warranty or additional liability.
+
+   END OF TERMS AND CONDITIONS
+
+---
+
+MIT License
+
+Copyright (c) 2024-2025 Model Context Protocol a Series of LF Projects, LLC.
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+---
+
+Creative Commons Attribution 4.0 International (CC-BY-4.0)
+
+Documentation in this project (excluding specifications) is licensed under
+CC-BY-4.0. See https://creativecommons.org/licenses/by/4.0/legalcode for
+the full license text.
+
+■ chownr 3.0.0 — package.json の記載: BlueOak-1.0.0
+■ glob 13.0.6 — package.json の記載: BlueOak-1.0.0
+■ yallist 5.0.0 — package.json の記載: BlueOak-1.0.0
+
+All packages under `src/` are licensed according to the terms in
+their respective `LICENSE` or `LICENSE.md` files.
+
+The remainder of this project is licensed under the Blue Oak
+Model License, as follows:
+
+-----
+
+# Blue Oak Model License
+
+Version 1.0.0
+
+## Purpose
+
+This license gives everyone as much permission to work with
+this software as possible, while protecting contributors
+from liability.
+
+## Acceptance
+
+In order to receive this license, you must agree to its
+rules.  The rules of this license are both obligations
+under that agreement and conditions to your license.
+You must not do anything with this software that triggers
+a rule that you cannot or will not follow.
+
+## Copyright
+
+Each contributor licenses you to do everything with this
+software that would otherwise infringe that contributor's
+copyright in it.
+
+## Notices
+
+You must ensure that everyone who gets a copy of
+any part of this software from you, with or without
+changes, also gets the text of this license or a link to
+<https://blueoakcouncil.org/license/1.0.0>.
+
+## Excuse
+
+If anyone notifies you in writing that you have not
+complied with [Notices](#notices), you can keep your
+license by taking all practical steps to comply within 30
+days after the notice.  If you do not do so, your license
+ends immediately.
+
+## Patent
+
+Each contributor licenses you to do everything with this
+software that would otherwise infringe any patent claims
+they can license or become able to license.
+
+## Reliability
+
+No contributor can revoke this license.
+
+## No Liability
+
+***As far as the law allows, this software comes as is,
+without any warranty or condition, and no contributor
+will be liable to anyone for any damages related to this
+software or this license, under any kind of legal claim.***
+
+■ lru-cache 11.5.3 — package.json の記載: BlueOak-1.0.0
+■ minipass 7.1.3 — package.json の記載: BlueOak-1.0.0
+■ path-scurry 2.0.2 — package.json の記載: BlueOak-1.0.0
+■ tar 7.5.22 — package.json の記載: BlueOak-1.0.0
+
+# Blue Oak Model License
+
+Version 1.0.0
+
+## Purpose
+
+This license gives everyone as much permission to work with
+this software as possible, while protecting contributors
+from liability.
+
+## Acceptance
+
+In order to receive this license, you must agree to its
+rules.  The rules of this license are both obligations
+under that agreement and conditions to your license.
+You must not do anything with this software that triggers
+a rule that you cannot or will not follow.
+
+## Copyright
+
+Each contributor licenses you to do everything with this
+software that would otherwise infringe that contributor's
+copyright in it.
+
+## Notices
+
+You must ensure that everyone who gets a copy of
+any part of this software from you, with or without
+changes, also gets the text of this license or a link to
+<https://blueoakcouncil.org/license/1.0.0>.
+
+## Excuse
+
+If anyone notifies you in writing that you have not
+complied with [Notices](#notices), you can keep your
+license by taking all practical steps to comply within 30
+days after the notice.  If you do not do so, your license
+ends immediately.
+
+## Patent
+
+Each contributor licenses you to do everything with this
+software that would otherwise infringe any patent claims
+they can license or become able to license.
+
+## Reliability
+
+No contributor can revoke this license.
+
+## No Liability
+
+***As far as the law allows, this software comes as is,
+without any warranty or condition, and no contributor
+will be liable to anyone for any damages related to this
+software or this license, under any kind of legal claim.***
+
+■ minimatch 10.2.6 — package.json の記載: BlueOak-1.0.0
+
+# Blue Oak Model License
+
+Version 1.0.0
+
+## Purpose
+
+This license gives everyone as much permission to work with
+this software as possible, while protecting contributors
+from liability.
+
+## Acceptance
+
+In order to receive this license, you must agree to its
+rules. The rules of this license are both obligations
+under that agreement and conditions to your license.
+You must not do anything with this software that triggers
+a rule that you cannot or will not follow.
+
+## Copyright
+
+Each contributor licenses you to do everything with this
+software that would otherwise infringe that contributor's
+copyright in it.
+
+## Notices
+
+You must ensure that everyone who gets a copy of
+any part of this software from you, with or without
+changes, also gets the text of this license or a link to
+<https://blueoakcouncil.org/license/1.0.0>.
+
+## Excuse
+
+If anyone notifies you in writing that you have not
+complied with [Notices](#notices), you can keep your
+license by taking all practical steps to comply within 30
+days after the notice. If you do not do so, your license
+ends immediately.
+
+## Patent
+
+Each contributor licenses you to do everything with this
+software that would otherwise infringe any patent claims
+they can license or become able to license.
+
+## Reliability
+
+No contributor can revoke this license.
+
+## No Liability
+
+**_As far as the law allows, this software comes as is,
+without any warranty or condition, and no contributor
+will be liable to anyone for any damages related to this
+software or this license, under any kind of legal claim._**
+
+
+8. パッケージに含まれる NOTICE ファイル
+------------------------------------------------------------------------------
+
+NOTICE ファイルを含むパッケージはありません。
+
+
+9. 主なライセンスの本文
+------------------------------------------------------------------------------
+
+5 章で各パッケージに記載したライセンスの標準的な本文です。<year> <copyright holders> の部分には、
+5 章に記載した各パッケージの著作権表示が入ります。
+
+■ MIT License
+
+MIT License
+
+Copyright (c) <year> <copyright holders>
+
+Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated
+documentation files (the "Software"), to deal in the Software without restriction, including without limitation the
+rights to use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of the Software, and to permit
+persons to whom the Software is furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all copies or substantial portions of the
+Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE
+WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR
+COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR
+OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+
+■ ISC License
+
+ISC License
+
+Copyright (c) <year> <copyright holders>
+
+Permission to use, copy, modify, and/or distribute this software for any purpose with or without fee is hereby
+granted, provided that the above copyright notice and this permission notice appear in all copies.
+
+THE SOFTWARE IS PROVIDED "AS IS" AND THE AUTHOR DISCLAIMS ALL WARRANTIES WITH REGARD TO THIS SOFTWARE INCLUDING ALL
+IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS. IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR ANY SPECIAL, DIRECT,
+INDIRECT, OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN
+ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF OR IN CONNECTION WITH THE USE OR PERFORMANCE OF
+THIS SOFTWARE.
+
+■ BSD 2-Clause License
+
+BSD 2-Clause License
+
+Copyright (c) <year> <copyright holders>
+
+Redistribution and use in source and binary forms, with or without modification, are permitted provided that the
+following conditions are met:
+
+1. Redistributions of source code must retain the above copyright notice, this list of conditions and the following
+   disclaimer.
+
+2. Redistributions in binary form must reproduce the above copyright notice, this list of conditions and the following
+   disclaimer in the documentation and/or other materials provided with the distribution.
+
+THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES,
+INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,
+SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
+SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY,
+WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF
+THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+
+■ BSD 3-Clause License
+
+BSD 3-Clause License
+
+Copyright (c) <year> <copyright holders>
+
+Redistribution and use in source and binary forms, with or without modification, are permitted provided that the
+following conditions are met:
+
+1. Redistributions of source code must retain the above copyright notice, this list of conditions and the following
+   disclaimer.
+
+2. Redistributions in binary form must reproduce the above copyright notice, this list of conditions and the following
+   disclaimer in the documentation and/or other materials provided with the distribution.
+
+3. Neither the name of the copyright holder nor the names of its contributors may be used to endorse or promote
+   products derived from this software without specific prior written permission.
+
+THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES,
+INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,
+SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
+SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY,
+WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF
+THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+
+■ Apache License 2.0
+
+Apache License
+
+Version 2.0, January 2004
+
+http://www.apache.org/licenses/
+
+TERMS AND CONDITIONS FOR USE, REPRODUCTION, AND DISTRIBUTION
+
+1. Definitions.
+
+"License" shall mean the terms and conditions for use, reproduction, and distribution as defined by Sections 1 through 9 of this document.
+
+"Licensor" shall mean the copyright owner or entity authorized by the copyright owner that is granting the License.
+
+"Legal Entity" shall mean the union of the acting entity and all other entities that control, are controlled by, or are under common control with that entity. For the purposes of this definition, "control" means (i) the power, direct or indirect, to cause the direction or management of such entity, whether by contract or otherwise, or (ii) ownership of fifty percent (50%) or more of the outstanding shares, or (iii) beneficial ownership of such entity.
+
+"You" (or "Your") shall mean an individual or Legal Entity exercising permissions granted by this License.
+
+"Source" form shall mean the preferred form for making modifications, including but not limited to software source code, documentation source, and configuration files.
+
+"Object" form shall mean any form resulting from mechanical transformation or translation of a Source form, including but not limited to compiled object code, generated documentation, and conversions to other media types.
+
+"Work" shall mean the work of authorship, whether in Source or Object form, made available under the License, as indicated by a copyright notice that is included in or attached to the work (an example is provided in the Appendix below).
+
+"Derivative Works" shall mean any work, whether in Source or Object form, that is based on (or derived from) the Work and for which the editorial revisions, annotations, elaborations, or other modifications represent, as a whole, an original work of authorship. For the purposes of this License, Derivative Works shall not include works that remain separable from, or merely link (or bind by name) to the interfaces of, the Work and Derivative Works thereof.
+
+"Contribution" shall mean any work of authorship, including the original version of the Work and any modifications or additions to that Work or Derivative Works thereof, that is intentionally submitted to Licensor for inclusion in the Work by the copyright owner or by an individual or Legal Entity authorized to submit on behalf of the copyright owner. For the purposes of this definition, "submitted" means any form of electronic, verbal, or written communication sent to the Licensor or its representatives, including but not limited to communication on electronic mailing lists, source code control systems, and issue tracking systems that are managed by, or on behalf of, the Licensor for the purpose of discussing and improving the Work, but excluding communication that is conspicuously marked or otherwise designated in writing by the copyright owner as "Not a Contribution."
+
+"Contributor" shall mean Licensor and any individual or Legal Entity on behalf of whom a Contribution has been received by Licensor and subsequently incorporated within the Work.
+
+2. Grant of Copyright License. Subject to the terms and conditions of this License, each Contributor hereby grants to You a perpetual, worldwide, non-exclusive, no-charge, royalty-free, irrevocable copyright license to reproduce, prepare Derivative Works of, publicly display, publicly perform, sublicense, and distribute the Work and such Derivative Works in Source or Object form.
+
+3. Grant of Patent License. Subject to the terms and conditions of this License, each Contributor hereby grants to You a perpetual, worldwide, non-exclusive, no-charge, royalty-free, irrevocable (except as stated in this section) patent license to make, have made, use, offer to sell, sell, import, and otherwise transfer the Work, where such license applies only to those patent claims licensable by such Contributor that are necessarily infringed by their Contribution(s) alone or by combination of their Contribution(s) with the Work to which such Contribution(s) was submitted. If You institute patent litigation against any entity (including a cross-claim or counterclaim in a lawsuit) alleging that the Work or a Contribution incorporated within the Work constitutes direct or contributory patent infringement, then any patent licenses granted to You under this License for that Work shall terminate as of the date such litigation is filed.
+
+4. Redistribution. You may reproduce and distribute copies of the Work or Derivative Works thereof in any medium, with or without modifications, and in Source or Object form, provided that You meet the following conditions:
+
+You must give any other recipients of the Work or Derivative Works a copy of this License; and
+
+You must cause any modified files to carry prominent notices stating that You changed the files; and
+
+You must retain, in the Source form of any Derivative Works that You distribute, all copyright, patent, trademark, and attribution notices from the Source form of the Work, excluding those notices that do not pertain to any part of the Derivative Works; and
+
+If the Work includes a "NOTICE" text file as part of its distribution, then any Derivative Works that You distribute must include a readable copy of the attribution notices contained within such NOTICE file, excluding those notices that do not pertain to any part of the Derivative Works, in at least one of the following places: within a NOTICE text file distributed as part of the Derivative Works; within the Source form or documentation, if provided along with the Derivative Works; or, within a display generated by the Derivative Works, if and wherever such third-party notices normally appear. The contents of the NOTICE file are for informational purposes only and do not modify the License. You may add Your own attribution notices within Derivative Works that You distribute, alongside or as an addendum to the NOTICE text from the Work, provided that such additional attribution notices cannot be construed as modifying the License. You may add Your own copyright statement to Your modifications and may provide additional or different license terms and conditions for use, reproduction, or distribution of Your modifications, or for any such Derivative Works as a whole, provided Your use, reproduction, and distribution of the Work otherwise complies with the conditions stated in this License.
+
+5. Submission of Contributions. Unless You explicitly state otherwise, any Contribution intentionally submitted for inclusion in the Work by You to the Licensor shall be under the terms and conditions of this License, without any additional terms or conditions. Notwithstanding the above, nothing herein shall supersede or modify the terms of any separate license agreement you may have executed with Licensor regarding such Contributions.
+
+6. Trademarks. This License does not grant permission to use the trade names, trademarks, service marks, or product names of the Licensor, except as required for reasonable and customary use in describing the origin of the Work and reproducing the content of the NOTICE file.
+
+7. Disclaimer of Warranty. Unless required by applicable law or agreed to in writing, Licensor provides the Work (and each Contributor provides its Contributions) on an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied, including, without limitation, any warranties or conditions of TITLE, NON-INFRINGEMENT, MERCHANTABILITY, or FITNESS FOR A PARTICULAR PURPOSE. You are solely responsible for determining the appropriateness of using or redistributing the Work and assume any risks associated with Your exercise of permissions under this License.
+
+8. Limitation of Liability. In no event and under no legal theory, whether in tort (including negligence), contract, or otherwise, unless required by applicable law (such as deliberate and grossly negligent acts) or agreed to in writing, shall any Contributor be liable to You for damages, including any direct, indirect, special, incidental, or consequential damages of any character arising as a result of this License or out of the use or inability to use the Work (including but not limited to damages for loss of goodwill, work stoppage, computer failure or malfunction, or any and all other commercial damages or losses), even if such Contributor has been advised of the possibility of such damages.
+
+9. Accepting Warranty or Additional Liability. While redistributing the Work or Derivative Works thereof, You may choose to offer, and charge a fee for, acceptance of support, warranty, indemnity, or other liability obligations and/or rights consistent with this License. However, in accepting such obligations, You may act only on Your own behalf and on Your sole responsibility, not on behalf of any other Contributor, and only if You agree to indemnify, defend, and hold each Contributor harmless for any liability incurred by, or claims asserted against, such Contributor by reason of your accepting any such warranty or additional liability.
+
+END OF TERMS AND CONDITIONS
+
+
+（以上）

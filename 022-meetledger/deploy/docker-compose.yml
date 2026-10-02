@@ -1,5 +1,6 @@
-# Self-hosted MeetLedger (example). Fill secrets in ../.env (copy from .env.example). NOT verified in the build environment
-# (no Docker daemon there) — run `docker compose up -d` and the smoke test in docs/OPERATIONS.md before going live.
+# Self-hosted MeetLedger (example). Copy ../.env.example to ../.env, fill secrets, then run from this directory:
+#   docker compose --env-file ../.env up -d   (--env-file is needed so ${...} below is interpolated from ../.env)
+# NOT verified in the build environment (no Docker daemon there) — run it and the smoke test in docs/OPERATIONS.md before going live.
 services:
   db:
     image: postgres:16

@@ -33,8 +33,7 @@ test('real local transcription (sherpa) + local-rules summary, nothing sent out'
   const meetingId = /meetings\/([0-9a-f-]{36})/.exec(page.url())![1];
   expect(await ws.meeting(meetingId)).toMatchObject({ transcriptionMode: 'local', aiEnabled: true, isConfidential: false });
 
-  const dlg = await uploadWithConsent(page, JA_WAV);
-  expect(dlg).toBeTruthy();
+  await uploadWithConsent(page, JA_WAV);
   const proc = await waitFor(
     'local-sherpa transcript + summary',
     () => ws.processing(meetingId),
@@ -50,7 +49,8 @@ test('real local transcription (sherpa) + local-rules summary, nothing sent out'
 
   const tr = await ws.get(`/meetings/${meetingId}/transcript`);
   const text = (tr.segments ?? []).map((s: any) => s.text).join('');
-  expect(text).toMatch(/[぀-ヿ一-鿿]/); // real Japanese recognition output
+  expect(text).toMatch(/[\u3040-\u30ff\u4e00-\u9fff]/); // real Japanese recognition output
+  expect(text).toContain('弁当'); // SenseVoice (int8) output for the bundled sample is deterministic
   test.info().annotations.push({ type: 'local-asr transcript', description: text });
 
   await openTab(page, '文字起こし（Transcript）');

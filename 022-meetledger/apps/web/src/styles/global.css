@@ -1348,6 +1348,11 @@ mark {
   cursor: pointer;
   white-space: nowrap;
 }
+.sync-badge-count {
+  display: none;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
 .sync-badge-conflict {
   background: var(--danger-soft);
   color: var(--danger);
@@ -2580,8 +2585,11 @@ a.result-title:hover {
   .lang-code {
     display: none;
   }
-  .sync-badge span {
+  .sync-badge .sync-badge-text {
     display: none;
+  }
+  .sync-badge .sync-badge-count {
+    display: inline;
   }
   .ws-switcher-compact {
     max-width: 38vw;

@@ -193,11 +193,15 @@ function SyncBadge() {
   return (
     <Popover
       label={t('sync.title')}
+      buttonLabel={conflicts ? t('sync.badgeConflict', { n: conflicts }) : t('sync.badge', { n: total })}
       buttonClassName={`sync-badge${conflicts ? ' sync-badge-conflict' : ''}`}
       buttonContent={
         <>
           <Icon name="sync" size={16} />
-          <span>{conflicts ? t('sync.badgeConflict', { n: conflicts }) : t('sync.badge', { n: total })}</span>
+          <span className="sync-badge-text">{conflicts ? t('sync.badgeConflict', { n: conflicts }) : t('sync.badge', { n: total })}</span>
+          <span className="sync-badge-count" aria-hidden="true">
+            {conflicts || total}
+          </span>
         </>
       }
     >

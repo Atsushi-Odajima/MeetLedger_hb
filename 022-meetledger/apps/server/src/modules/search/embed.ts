@@ -12,7 +12,7 @@ const builtinLocal = new LocalHashEmbeddingProvider();
  * (EMBEDDING_PROVIDER), mirroring how AI providers are gated. Falls back to the local lexical hash embedding.
  */
 export function embeddingDecision(s: WorkspaceSettings, cfg: Config): PolicyDecision {
-  const d = decideEmbedding(s);
+  const d = decideEmbedding(s, cfg);
   if (d.provider !== 'local-hash' && cfg.EMBEDDING_PROVIDER !== d.provider) {
     return { allowed: true, provider: 'local-hash', isLocal: true, reason: `${d.provider} embedding はこのインストールで有効化されていません（local-hash を使用）` };
   }

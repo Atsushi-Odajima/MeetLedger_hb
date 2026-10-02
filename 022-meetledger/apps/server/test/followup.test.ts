@@ -268,7 +268,9 @@ describe('followup: brief, memory, timeline, recurring, dashboard', () => {
     // dashboard lists it as overdue, neutral (no blame) data only
     const dash = (await owner.client.get(`/api/w/${ws}/dashboard`)).body;
     expect(dash.overdue.commitments.map((x: any) => x.description)).toContain('資料送付');
-    expect(dash.myCommitments.map((x: any) => x.description)).toContain('資料送付');
+    expect(dash.counts.overdueCommitments).toBeGreaterThanOrEqual(1);
+    // overdue items are listed (once) under Overdue, not repeated in My Commitments
+    expect(dash.myCommitments.map((x: any) => x.description)).not.toContain('資料送付');
     expect(dash.waitingOnOthers.commitments.map((x: any) => x.description)).toContain('社内稟議の結果を連絡');
   });
 
@@ -336,6 +338,9 @@ describe('followup: brief, memory, timeline, recurring, dashboard', () => {
     expect(mem.body.recentChanges[0].current.id).toBe(d2);
     expect(mem.body.outstandingCommitments.map((x: any) => x.description)).toContain('価格表を更新して共有');
     expect(mem.body.recentMeetings.map((x: any) => x.id)).toEqual([m2.id, m1.id]);
+    expect(mem.body.counts).toMatchObject({ currentDecisions: 2, outstandingCommitments: 1, recentChanges: 1 });
+    expect(mem.body.more.currentDecisions).toBe(false);
+    expect(mem.body.meetingCount).toBe(2);
     // topic memory (token match)
     const topic = (await owner.client.get(`/api/w/${ws}/memory?topic=${encodeURIComponent('価格')}`)).body;
     expect(topic.currentDecisions.map((x: any) => x.id)).toEqual([d2]);
@@ -370,6 +375,21 @@ describe('followup: brief, memory, timeline, recurring, dashboard', () => {
     expect(Object.keys(tl.body.person).sort()).toEqual(['email', 'id', 'name', 'organization', 'roleTitle', 'tags']);
     const asc = (await owner.client.get(`/api/w/${ws}/people/${p.id}/timeline?order=asc`)).body.events.filter((e: any) => e.type === 'meeting');
     expect(asc.map((e: any) => e.meeting.id)).toEqual([m1.id, m2.id]);
+    // keyset pagination: pages of 2 reproduce the full list exactly (no gaps / duplicates, incl. same-timestamp items)
+    for (const order of ['desc', 'asc']) {
+      const full = (await owner.client.get(`/api/w/${ws}/people/${p.id}/timeline?order=${order}`)).body.events.map((e: any) => `${e.type}:${e.id}`);
+      const paged: string[] = [];
+      let cursor: string | null = null;
+      for (let i = 0; i < 20; i++) {
+        const r: any = await owner.client.get(`/api/w/${ws}/people/${p.id}/timeline?order=${order}&limit=2${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ''}`);
+        expect(r.status).toBe(200);
+        paged.push(...r.body.events.map((e: any) => `${e.type}:${e.id}`));
+        cursor = r.body.nextCursor;
+        if (!cursor) break;
+      }
+      expect(paged).toEqual(full);
+    }
+    expect((await owner.client.get(`/api/w/${ws}/people/${p.id}/timeline?cursor=garbage`)).status).toBe(400);
   });
 
   it('ACL: private meeting items never appear in another user’s brief, dashboard, timeline or memory', async () => {
@@ -432,6 +452,23 @@ describe('followup: brief, memory, timeline, recurring, dashboard', () => {
     expect(dash.myActions.map((x: any) => x.description)).toContain('自分のAction');
     expect(dash.counts.needsReview).toBeGreaterThanOrEqual(1);
     for (const k of ['today', 'upcoming', 'needsReview', 'myActions', 'myCommitments', 'waitingOnOthers', 'overdue', 'decisionsChanged', 'openQuestions']) expect(dash).toHaveProperty(k);
+    // bounded sections: top 10 + exact count
+    const bulk = await meeting(owner.client, { title: '大量', scheduledStart: '2026-09-29T05:00:00Z' });
+    for (let i = 0; i < 13; i++) await L.action({ meetingId: bulk.id, description: `bulk-${i}`, assigneeUserId: owner.userId, dueDate: '2026-10-20' });
+    const big = (await owner.client.get(`/api/w/${ws}/dashboard`)).body;
+    expect(big.myActions).toHaveLength(10);
+    expect(big.counts.myActions).toBeGreaterThanOrEqual(14);
+    expect(big.limit).toBe(10);
+    expect(big.countCap).toBe(1000);
+    // brief "more" is exact
+    const proj = (await owner.client.post(`/api/w/${ws}/projects`, { name: 'Bulk P' })).body;
+    const b1 = await meeting(owner.client, { title: 'Bulk 1', projectId: proj.id, scheduledStart: '2026-09-28T05:00:00Z' });
+    for (let i = 0; i < 13; i++) await L.action({ meetingId: b1.id, description: `pa-${i}`, assigneeUserId: owner.userId });
+    const b2 = await meeting(owner.client, { title: 'Bulk 2', projectId: proj.id, scheduledStart: '2026-10-07T05:00:00Z' });
+    const br = (await owner.client.get(`/api/w/${ws}/meetings/${b2.id}/brief`)).body;
+    expect(br.openActions).toHaveLength(10);
+    expect(br.counts.actions).toBe(13);
+    expect(br.more.actions).toBe(3);
   });
 
   it('templates: built-ins + custom (admin only); custom tone drives follow-up wording', async () => {

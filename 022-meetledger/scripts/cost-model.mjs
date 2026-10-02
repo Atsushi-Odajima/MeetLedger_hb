@@ -11,10 +11,10 @@ const LOCAL_RTF = Number(args.rtf ?? 0.21); // measured 2026-10-02: SenseVoice i
 const P = {
   transcription: {
     'Local (sherpa-onnx SenseVoice)': { perHour: 0, source: 'no API fee (compute only)' },
-    'AssemblyAI Universal-3.5 Pro + 話者分離': { perHour: 0.23, source: '$0.21/h + $0.02/h [検索要約]' },
-    'ElevenLabs Scribe v2 (話者分離込み)': { perHour: 0.22, source: '$0.22/h [検索要約]' },
-    'Deepgram Nova-3 Multilingual + 話者分離': { perHour: 0.432, source: '$0.0052/min + $0.0020/min [検索要約]' },
-    'OpenAI gpt-4o-mini-transcribe (話者分離なし, 2027-02-26終了予定)': { perHour: 0.18, source: '$0.003/min [検索要約]' },
+    'Deepgram Nova-3 Multilingual + 話者分離 [対応済]': { perHour: 0.432, source: '$0.0052/min + $0.0020/min [検索要約]' },
+    'OpenAI gpt-4o-mini-transcribe (話者分離なし, 2027-02-26終了予定) [対応済・model変更で利用]': { perHour: 0.18, source: '$0.003/min [検索要約]' },
+    '（参考・本バージョン未対応）AssemblyAI Universal-3.5 Pro + 話者分離': { perHour: 0.23, source: '$0.21/h + $0.02/h [検索要約]' },
+    '（参考・本バージョン未対応）ElevenLabs Scribe v2 (話者分離込み)': { perHour: 0.22, source: '$0.22/h [検索要約]' },
   },
   llm: {
     'Local rules (外部送信なし)': { in: 0, out: 0, source: 'no API fee' },
@@ -42,7 +42,8 @@ const U = {
   polishInputTokens: 800,
   polishOutputTokens: 300,
   embeddingTokenFactor: 1.2,
-  audioMBPerHour: { 'Opus 32kbps (ブラウザ/Desktop録音)': 14.4, 'M4A 64kbps (アップロード)': 28.8, '動画 720p (アップロード)': 900 },
+  // Web recorder: Opus 64 kbps; Desktop recorder (stereo mic+system): Opus 96 kbps; uploads vary.
+  audioMBPerHour: { 'Web録音 Opus 64kbps': 28.8, 'Desktop録音 Opus 96kbps (stereo)': 43.2, '動画 720p (アップロード)': 900 },
   emailsPerMeetingHour: 3,
   dbMBPerHour: 0.5, // transcript + indexes + ledger, generous
 };
@@ -65,8 +66,8 @@ function dbTier(h) {
 
 const PLANS = [
   { name: 'A. Local-first（既定）', t: 'Local (sherpa-onnx SenseVoice)', l: 'Local rules (外部送信なし)', e: 'local-hash' },
-  { name: 'B. Cloud economy', t: 'AssemblyAI Universal-3.5 Pro + 話者分離', l: 'Claude Haiku 4.5', e: 'OpenAI text-embedding-3-small' },
-  { name: 'C. Cloud standard', t: 'Deepgram Nova-3 Multilingual + 話者分離', l: 'Claude Sonnet 5.5', e: 'OpenAI text-embedding-3-small' },
+  { name: 'B. Cloud economy（話者分離なし）', t: 'OpenAI gpt-4o-mini-transcribe (話者分離なし, 2027-02-26終了予定) [対応済・model変更で利用]', l: 'Claude Haiku 4.5', e: 'OpenAI text-embedding-3-small' },
+  { name: 'C. Cloud standard', t: 'Deepgram Nova-3 Multilingual + 話者分離 [対応済]', l: 'Claude Sonnet 5.5', e: 'OpenAI text-embedding-3-small' },
   { name: 'D. Local音声 + Cloud AI', t: 'Local (sherpa-onnx SenseVoice)', l: 'Claude Haiku 4.5', e: 'local-hash' },
 ];
 
@@ -81,7 +82,7 @@ out.push(`| Email通知 (SES) | $0.10/1000通 | ${fmt((U.emailsPerMeetingHour * 
 out.push('');
 out.push(`前提: 日本語 ${U.transcriptCharsPerHour.toLocaleString()}文字/時, ${U.tokensPerChar} token/文字, 抽出 overhead ${U.extractionOverheadTokens} + 出力 ${U.extractionOutputTokens} tokens, Ask ${U.asksPerMeetingHour}回/時 (入力${U.askInputTokens}/出力${U.askOutputTokens}), 文面調整 ${U.polishPerMeetingHour}回/時.`);
 out.push('');
-out.push('### 月間音声時間別の月額（プラン別、DBはRDS Single-AZ東京、音声保存はOpus 30日保持）\n');
+out.push('### 月間音声時間別の月額（プラン別、DBはRDS Single-AZ東京、音声保存はDesktop録音96kbps・30日保持）\n');
 out.push(`| プラン | ${HOURS.map((h) => `${h}時間/月`).join(' | ')} |`);
 out.push(`|---|${HOURS.map(() => '---').join('|')}|`);
 for (const plan of PLANS) {
@@ -89,7 +90,7 @@ for (const plan of PLANS) {
     const t = P.transcription[plan.t].perHour * h;
     const l = llmPerHour(P.llm[plan.l]) * h;
     const e = ((transcriptTokens * U.embeddingTokenFactor * P.embedding[plan.e]) / 1e6) * h;
-    const s3 = ((h * U.audioMBPerHour['Opus 32kbps (ブラウザ/Desktop録音)']) / 1024) * 1 * P.s3GbMonth;
+    const s3 = ((h * U.audioMBPerHour['Desktop録音 Opus 96kbps (stereo)']) / 1024) * 1 * P.s3GbMonth;
     const db = P.rds[dbTier(h)] + ((h * U.dbMBPerHour * 12) / 1024) * P.rdsStorageGbMonth;
     const mail = ((h * U.emailsPerMeetingHour) / 1000) * P.sesPer1000;
     return fmt(t + l + e + s3 + db + mail);

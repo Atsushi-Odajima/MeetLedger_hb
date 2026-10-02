@@ -28,6 +28,8 @@ const CACHEABLE_API = [
   /^\/api\/w\/[^/]+\/meetings\/[^/]+\/brief$/,
   /^\/api\/w\/[^/]+\/meetings\/[^/]+\/notes$/,
   /^\/api\/w\/[^/]+\/meetings\/[^/]+\/agenda$/,
+  /^\/api\/w\/[^/]+\/meetings\/[^/]+\/(ledger|summary)$/,
+  /^\/api\/w\/[^/]+\/people$/,
   /^\/api\/w\/[^/]+\/actions$/,
   /^\/api\/w\/[^/]+\/commitments$/,
 ];

@@ -31,7 +31,10 @@ const PROJECTS = [
     dir: 'apps/server',
     workspace: '@meetledger/server',
     title: 'サーバー（apps/server）',
-    note: 'Docker イメージ、または Node.js で直接動かすサーバーにインストールされる実行時の依存パッケージです。',
+    note:
+      'Docker イメージ、または Node.js で直接動かすサーバーにインストールされる実行時の依存パッケージです。\n' +
+      'この一覧は Linux x64 の環境で作成しました。OS 別パッケージ（sherpa-onnx-linux-x64）は、ARM の Linux では\n' +
+      'sherpa-onnx-linux-arm64、macOS / Windows では sherpa-onnx-darwin-* / sherpa-onnx-win-* になります（同じ Apache-2.0）。',
   },
   {
     key: 'web',
@@ -135,6 +138,16 @@ function copyrightLines(text) {
     if (!out.includes(line)) out.push(line);
     if (out.length >= 6) break;
   }
+  if (!out.length) {
+    // e.g. "Original code Copyright Julian Gruber <…>" — notice in the middle of a line
+    for (const raw of text.split('\n')) {
+      const line = raw.trim().replace(/\s+/g, ' ');
+      if (!/\bCopyright\s+(\(c\)|\(C\)|©|\d{4}|[A-Z])/.test(line)) continue;
+      if (/notice|license to|owner|holders|\[yyyy\]|<year>/i.test(line) || line.length > 200) continue;
+      if (!out.includes(line)) out.push(line);
+      if (out.length >= 6) break;
+    }
+  }
   return out;
 }
 
@@ -156,7 +169,13 @@ function repoOf(pj) {
   const r = pj.repository;
   let url = typeof r === 'string' ? r : r?.url;
   if (!url) return pj.homepage ?? null;
-  url = url.replace(/^git\+/, '').replace(/\.git$/, '').replace(/^git:\/\//, 'https://').replace(/^ssh:\/\/git@/, 'https://');
+  url = url
+    .replace(/^git\+/, '')
+    .replace(/\.git$/, '')
+    .replace(/^git:\/\//, 'https://')
+    .replace(/^ssh:\/\/git@/, 'https://')
+    .replace(/^git@([^:]+):/, 'https://$1/')
+    .replace(/^https:\/\/git@/, 'https://');
   if (/^[\w.-]+\/[\w.-]+$/.test(url)) url = `https://github.com/${url}`;
   if (/^github:/.test(url)) url = `https://github.com/${url.slice(7)}`;
   return url;

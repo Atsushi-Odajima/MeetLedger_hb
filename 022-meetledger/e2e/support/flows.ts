@@ -64,8 +64,8 @@ export async function meetingWithTranscript(h: ServerHandle, ws: Ws, spec: Meeti
 
 /** Review-inbox candidates of a meeting by type. */
 export async function candidates(ws: Ws, meetingId: string, type?: string): Promise<any[]> {
-  const items = await ws.review();
-  return items.filter((x: any) => x.item.meetingId === meetingId && (!type || x.type === type)).map((x: any) => ({ ...x.item, type: x.type, flags: x.flags }));
+  const r = await ws.get(`/review?meetingId=${meetingId}&limit=300`);
+  return (r.items ?? []).filter((x: any) => x.item.meetingId === meetingId && (!type || x.type === type)).map((x: any) => ({ ...x.item, type: x.type, flags: x.flags }));
 }
 
 /** ISO timestamp of `hour`:00 Asia/Tokyo on the day `days` from today (Tokyo calendar). */

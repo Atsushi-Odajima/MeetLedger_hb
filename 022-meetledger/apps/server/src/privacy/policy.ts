@@ -1,5 +1,4 @@
 import type { AiProviderId, AudioRetention, EmbeddingProviderId, TranscriptionMode, Visibility } from '@meetledger/shared';
-import { LOCAL_AI_PROVIDERS } from '@meetledger/shared';
 import type { Config } from '../config';
 
 /** Workspace-level privacy & processing settings (stored in workspaces.settings, merged with defaults). */
@@ -71,7 +70,9 @@ export function decideTranscription(m: MeetingPolicyInput, s: WorkspaceSettings,
 
 function aiProviderFor(s: WorkspaceSettings, cfg: Config): { provider: AiProviderId; isLocal: boolean; note?: string } {
   const wanted = s.ai.provider;
-  if (LOCAL_AI_PROVIDERS.includes(wanted)) return { provider: wanted, isLocal: true };
+  if (wanted === 'local-rules') return { provider: wanted, isLocal: true };
+  // Ollama is on-premise but must be enabled by the installation (AI_PROVIDER=ollama + OLLAMA_URL).
+  if (wanted === 'ollama') return cfg.AI_PROVIDER === 'ollama' ? { provider: 'ollama', isLocal: true } : { provider: 'local-rules', isLocal: true, note: 'Ollama はこのインストールで有効化されていないため Local rules を使用' };
   if (!s.ai.cloudAllowed) return { provider: 'local-rules', isLocal: true, note: 'クラウドAIが許可されていないためLocal rulesを使用' };
   if (cfg.AI_PROVIDER !== wanted) return { provider: 'local-rules', isLocal: true, note: `${wanted} はこのインストールで有効化されていません` };
   return { provider: wanted, isLocal: false };
@@ -91,8 +92,10 @@ export function decideWorkspaceAi(s: WorkspaceSettings, cfg: Config): PolicyDeci
   return { allowed: true, provider: p.provider, isLocal: p.isLocal, reason: p.note ?? (p.isLocal ? 'Local AI（外部送信なし）' : `Cloud AI (${p.provider})`) };
 }
 
-export function decideEmbedding(s: WorkspaceSettings): PolicyDecision {
+export function decideEmbedding(s: WorkspaceSettings, cfg?: Pick<Config, 'EMBEDDING_PROVIDER'>): PolicyDecision {
   const id = s.ai.embeddings;
   if (id === 'openai' && !s.ai.cloudAllowed) return { allowed: true, provider: 'local-hash', isLocal: true, reason: 'クラウド不可のためlocal-hash embedding' };
+  // Non-default embedding providers must also be enabled by the installation.
+  if (cfg && id !== 'local-hash' && cfg.EMBEDDING_PROVIDER !== id) return { allowed: true, provider: 'local-hash', isLocal: true, reason: `${id} embedding はこのインストールで有効化されていないため local-hash を使用` };
   return { allowed: true, provider: id, isLocal: id !== 'openai', reason: id === 'openai' ? 'Cloud embedding (OpenAI)' : 'Local embedding' };
 }
