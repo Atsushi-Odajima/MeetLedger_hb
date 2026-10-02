@@ -3,7 +3,8 @@ import { build } from 'esbuild';
 import { cpSync, mkdirSync, readFileSync } from 'node:fs';
 
 const pkg = JSON.parse(readFileSync('./package.json', 'utf8'));
-const external = [...Object.keys(pkg.dependencies ?? {}), ...Object.keys(pkg.optionalDependencies ?? {})].filter((d) => d !== '@meetledger/shared');
+// Workspace packages (@meetledger/*) are TypeScript sources -> bundled. Native/runtime deps stay external.
+const external = [...Object.keys(pkg.dependencies ?? {}), ...Object.keys(pkg.optionalDependencies ?? {}), 'sherpa-onnx-node'].filter((d) => !d.startsWith('@meetledger/'));
 
 mkdirSync('dist', { recursive: true });
 await build({

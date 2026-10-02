@@ -1,0 +1,11 @@
+node_modules
+**/node_modules
+**/dist
+.data
+models
+apps/desktop
+e2e
+test-results
+playwright-report
+*.log
+.env

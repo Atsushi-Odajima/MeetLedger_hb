@@ -1,0 +1,16 @@
+{
+  "name": "@meetledger/local-asr",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "main": "src/index.ts",
+  "types": "src/index.ts",
+  "description": "On-device / on-server transcription & diarization (sherpa-onnx). Audio never leaves the machine.",
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json",
+    "test": "vitest run"
+  },
+  "optionalDependencies": {
+    "sherpa-onnx-node": "^1.13.8"
+  }
+}
