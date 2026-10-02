@@ -222,6 +222,11 @@ export interface FollowupListItem {
   status: string;
   generatedBy: string;
   createdAt: string;
+  version?: number;
+  edited?: boolean;
+  warnings?: (string | { message?: string; code?: string })[];
+  approvedAt?: string | null;
+  sentAt?: string | null;
 }
 
 export interface SearchHit {

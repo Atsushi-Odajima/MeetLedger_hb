@@ -5,10 +5,12 @@ import { AiBadge, Alert, Async, Badge, Button, Card, EmptyState, SelectField, Te
 import { useI18n, type MsgKey } from '../../i18n';
 import { useWs } from '../../state/workspace';
 import { useToast } from '../../state/toast';
-import { api, listOf } from '../../lib/api';
+import { api, ApiError, listOf } from '../../lib/api';
 import { copyText, useApi } from '../../lib/hooks';
 import type { FollowupListItem } from '../../lib/types';
 import { useMeeting } from './context';
+
+type Channel = 'email' | 'slack' | 'chat' | 'other';
 
 function Draft({ d, onChange }: { d: FollowupListItem; onChange(): void }) {
   const { t, fmt } = useI18n();
@@ -18,76 +20,122 @@ function Draft({ d, onChange }: { d: FollowupListItem; onChange(): void }) {
   const [subject, setSubject] = useState(d.subject ?? '');
   const [body, setBody] = useState(d.body);
   const [busy, setBusy] = useState<string | null>(null);
+  const [stale, setStale] = useState<{ type: string; id: string }[] | null>(null);
+  const [conflict, setConflict] = useState(false);
+  const [channel, setChannel] = useState<Channel>('email');
   useEffect(() => {
     setSubject(d.subject ?? '');
     setBody(d.body);
+    setConflict(false);
   }, [d]);
   const dirty = subject !== (d.subject ?? '') || body !== d.body;
-  const editable = meeting.canEdit && d.status === 'draft';
-  const act = async (name: string, fn: () => Promise<unknown>, okMsg: MsgKey) => {
+  const editable = meeting.canEdit && (d.status === 'draft' || d.status === 'approved');
+  const run = async (name: string, fn: () => Promise<unknown>, okMsg: MsgKey) => {
     setBusy(name);
     try {
       await fn();
       toast.success(t(okMsg));
+      setStale(null);
       onChange();
     } catch (e) {
-      toast.error(e);
+      if (e instanceof ApiError && e.status === 409) {
+        const det = (e.details ?? {}) as { code?: string; staleItems?: { type: string; id: string }[] };
+        if (det.code === 'stale_items') setStale(det.staleItems ?? []);
+        else setConflict(true);
+      } else toast.error(e);
     } finally {
       setBusy(null);
     }
   };
   const text = subject ? `${subject}\n\n${body}` : body;
+  const warnings = (d.warnings ?? []).map((w) => (typeof w === 'string' ? w : (w.message ?? w.code ?? ''))).filter(Boolean);
   return (
     <Card
       title={t(`followupKind.${d.kind}` as MsgKey)}
       actions={
         <div className="badges">
           {d.generatedBy === 'ai' ? <AiBadge /> : <Badge>{t('followup.template')}</Badge>}
+          {d.edited && <Badge>{t('followup.edited')}</Badge>}
           <Badge tone={d.status === 'approved' ? 'success' : d.status === 'sent' ? 'info' : 'neutral'}>{t(`followupStatus.${d.status}` as MsgKey)}</Badge>
         </div>
       }
       footer={<span className="muted">{fmt.dateTime(d.createdAt)}</span>}
     >
       <div className="stack">
+        {warnings.length > 0 && (
+          <Alert tone="warn" title={t('followup.warnings')}>
+            <ul className="notice-list">
+              {warnings.map((w, i) => (
+                <li key={i}>{w}</li>
+              ))}
+            </ul>
+          </Alert>
+        )}
+        {conflict && (
+          <Alert tone="warn" title={t('meetingSettings.conflict')}>
+            <p>{t('followup.conflict')}</p>
+            <Button size="sm" onClick={onChange}>
+              {t('common.reload')}
+            </Button>
+          </Alert>
+        )}
         <TextField label={t('followup.subject')} value={subject} onChange={(e) => setSubject(e.target.value)} readOnly={!editable} />
         <TextArea label={t('followup.body')} value={body} onChange={(e) => setBody(e.target.value)} rows={10} readOnly={!editable} />
+        {d.status === 'approved' && dirty && <p className="field-hint">{t('followup.editResetsApproval')}</p>}
+        {stale && (
+          <Alert tone="warn" title={t('followup.staleTitle')}>
+            <p>{t('followup.staleBody', { n: stale.length })}</p>
+            <Button size="sm" onClick={() => run('approve', () => api.post(a(`/followups/${d.id}/approve`), { version: d.version, acknowledgeStale: true }), 'followup.approved')}>
+              {t('followup.approveAnyway')}
+            </Button>
+          </Alert>
+        )}
         <div className="button-row">
           {editable && dirty && (
-            <Button variant="primary" loading={busy === 'save'} onClick={() => act('save', () => api.patch(a(`/followups/${d.id}`), { subject: subject || null, body }), 'common.saved')}>
+            <Button variant="primary" loading={busy === 'save'} onClick={() => run('save', () => api.patch(a(`/followups/${d.id}`), { subject: subject || null, body, version: d.version ?? 0 }), 'common.saved')}>
               {t('common.save')}
             </Button>
           )}
-          {editable && !dirty && (
-            <Button variant="primary" icon="check" loading={busy === 'approve'} onClick={() => act('approve', () => api.post(a(`/followups/${d.id}/approve`)), 'followup.approved')}>
+          {editable && !dirty && d.status === 'draft' && (
+            <Button variant="primary" icon="check" loading={busy === 'approve'} onClick={() => run('approve', () => api.post(a(`/followups/${d.id}/approve`), { version: d.version }), 'followup.approved')}>
               {t('followup.approve')}
             </Button>
           )}
           <Button icon="copy" onClick={() => copyText(text).then((ok) => (ok ? toast.success(t('common.copied')) : toast.error(t('common.copyFailed'))))}>
             {t('followup.copy')}
           </Button>
-          {meeting.canEdit && d.status === 'approved' && (
-            <Button icon="send" loading={busy === 'sent'} onClick={() => act('sent', () => api.post(a(`/followups/${d.id}/mark-sent`)), 'followup.markedSent')}>
-              {t('followup.markSent')}
-            </Button>
-          )}
           {meeting.canEdit && d.status !== 'sent' && d.status !== 'discarded' && (
-            <Button variant="ghost" icon="trash" loading={busy === 'discard'} onClick={() => act('discard', () => api.post(a(`/followups/${d.id}/discard`)), 'followup.discarded')}>
+            <Button variant="ghost" icon="trash" loading={busy === 'discard'} onClick={() => run('discard', () => api.post(a(`/followups/${d.id}/discard`)), 'followup.discarded')}>
               {t('followup.discard')}
             </Button>
           )}
         </div>
+        {meeting.canEdit && d.status === 'approved' && !dirty && (
+          <div className="inline-form">
+            <SelectField
+              label={t('followup.sentVia')}
+              value={channel}
+              onChange={(e) => setChannel(e.target.value as Channel)}
+              options={(['email', 'slack', 'chat', 'other'] as const).map((c) => ({ value: c, label: t(`followup.channel.${c}` as MsgKey) }))}
+            />
+            <Button icon="send" loading={busy === 'sent'} onClick={() => run('sent', () => api.post(a(`/followups/${d.id}/mark-sent`), { channel }), 'followup.markedSent')}>
+              {t('followup.markSent')}
+            </Button>
+          </div>
+        )}
         {d.status === 'approved' && (
           <p className="field-hint">
             {t('followup.externalNote')} <Link to={p('/settings/approvals')}>{t('settings.approvals')}</Link>
           </p>
         )}
+        {d.status === 'sent' && d.sentAt && <p className="field-hint">{t('followup.sentAt', { time: fmt.dateTime(d.sentAt) })}</p>}
       </div>
     </Card>
   );
 }
 
 export function FollowupTab() {
-  const { t } = useI18n();
+  const { t, lang } = useI18n();
   const toast = useToast();
   const { meeting, ma } = useMeeting();
   const state = useApi<unknown>(ma('/followups'));
@@ -97,7 +145,7 @@ export function FollowupTab() {
   const generate = async () => {
     setBusy(true);
     try {
-      await api.post(ma('/followups'), { kind });
+      await api.post(ma('/followups'), { kind, locale: lang });
       toast.success(t('followup.generated'));
       state.reload();
     } catch (e) {
