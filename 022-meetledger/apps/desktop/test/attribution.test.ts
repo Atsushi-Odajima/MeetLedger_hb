@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { SPEAKER_REMOTE, SPEAKER_SELF, SPEAKER_UNKNOWN, activeLevel, attributeSpeakers, segmentPower, type Envelope } from '../src/shared/audio/attribution';
+import { SPEAKER_REMOTE, SPEAKER_SELF, SPEAKER_UNKNOWN, activeLevel, attributeSpeakers, segmentPower, type AttributableSegment, type Envelope } from '../src/shared/audio/attribution';
 
 /** builds a 100 ms envelope from per-second [mic, system] RMS pairs */
 function env(perSecond: [number, number][]): Envelope {
@@ -32,7 +32,7 @@ describe('channel-based speaker attribution', () => {
   });
 
   it('ambiguous segments without diarization become 不明', () => {
-    const out = attributeSpeakers([{ startMs: 2000, endMs: 3000, text: 'x' }], e, { systemAudioCaptured: true });
+    const out = attributeSpeakers<AttributableSegment>([{ startMs: 2000, endMs: 3000, text: 'x' }], e, { systemAudioCaptured: true });
     expect(out[0]!.speaker).toBe(SPEAKER_UNKNOWN);
   });
 
@@ -47,7 +47,7 @@ describe('channel-based speaker attribution', () => {
       [0.05, 0],
       [0.05, 0],
     ]);
-    const out = attributeSpeakers([{ startMs: 0, endMs: 1000, text: 'x' }], quiet, { systemAudioCaptured: true });
+    const out = attributeSpeakers<AttributableSegment>([{ startMs: 0, endMs: 1000, text: 'x' }], quiet, { systemAudioCaptured: true });
     expect(out[0]!.speaker).toBeUndefined();
   });
 

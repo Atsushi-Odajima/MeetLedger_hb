@@ -18,5 +18,5 @@
       "@meetledger/local-asr": ["./src/worker/local-asr-contract.d.ts"]
     }
   },
-  "include": ["src/main", "src/preload", "src/worker", "src/shared", "test", "vitest.config.ts"]
+  "include": ["src/main", "src/preload", "src/worker", "src/shared", "test", "vitest.config.mts"]
 }
