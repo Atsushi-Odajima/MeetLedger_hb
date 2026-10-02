@@ -38,7 +38,7 @@ export function ApprovalsSettings() {
       <Alert tone="info" title={t('approvals.title')}>
         {t('approvals.intro')}
       </Alert>
-      <Tabs
+      <Tabs<'pending' | 'all'>
         label={t('settings.approvals')}
         active={tab}
         onChange={setTab}

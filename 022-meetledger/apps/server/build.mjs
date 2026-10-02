@@ -8,7 +8,7 @@ const external = [...Object.keys(pkg.dependencies ?? {}), ...Object.keys(pkg.opt
 
 mkdirSync('dist', { recursive: true });
 await build({
-  entryPoints: ['src/index.ts', 'src/cli/index.ts'],
+  entryPoints: ['src/index.ts', 'src/cli/index.ts', 'src/mcp/stdio.ts'],
   outdir: 'dist',
   bundle: true,
   platform: 'node',

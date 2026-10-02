@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
-import type { ActionDto, CommitmentDto, ContradictionDto, DecisionDto, LedgerEntityType, QuestionDto } from '@meetledger/shared';
+import type { ActionDto, CommitmentDto, ContradictionDto, DecisionDto, LedgerEntityType, QuestionDto, SourceRef } from '@meetledger/shared';
 import { AiBadge, Alert, Badge, Button, CandidateBadge, Card, CachedNotice, EmptyState, ErrorView, Loading, PageHeader, SelectField, Tabs, TextField, Checkbox } from '../components/ui';
 import { DecisionItem, SourceLink, personName, usePeople } from '../components/ledger';
 import { useI18n, type MsgKey } from '../i18n';
@@ -10,6 +10,25 @@ import { api, listOf, qs } from '../lib/api';
 import { useApi } from '../lib/hooks';
 
 type AnyItem = DecisionDto | ActionDto | CommitmentDto | QuestionDto;
+/** Union of the optional fields of all four candidate types (for reading without narrowing). */
+interface LooseItem {
+  text?: string;
+  question?: string;
+  description?: string;
+  topic?: string | null;
+  assigneePersonId?: string | null;
+  assigneeUserId?: string | null;
+  assigneeText?: string | null;
+  dueDate?: string | null;
+  dueText?: string | null;
+  promisedByPersonId?: string | null;
+  promisedByText?: string | null;
+  promisedToPersonId?: string | null;
+  promisedToText?: string | null;
+  extractedBy?: string;
+  confidence?: number | null;
+  source?: SourceRef | null;
+}
 interface Flags {
   assigneeInferred?: boolean;
   dueInferred?: boolean;
@@ -35,7 +54,7 @@ interface ReviewResponse {
 
 function deriveFlags(type: LedgerEntityType, item: AnyItem, given?: Flags): Flags {
   const f: Flags = { ...(given ?? {}) };
-  const it = item as Partial<ActionDto & CommitmentDto>;
+  const it = item as LooseItem;
   if (f.assigneeInferred === undefined && type === 'action') f.assigneeInferred = !!it.assigneeInferred;
   if (f.dueInferred === undefined) f.dueInferred = !!it.dueInferred;
   if (f.missingOwner === undefined && type === 'action') f.missingOwner = !it.assigneePersonId && !it.assigneeUserId && !it.assigneeText;
@@ -70,7 +89,7 @@ export function normalizeReview(r: ReviewResponse | AnyItem[] | null | undefined
 }
 
 function textOf(c: ReviewCard): string {
-  const it = c.item as Partial<DecisionDto & ActionDto & QuestionDto>;
+  const it = c.item as LooseItem;
   return (c.type === 'decision' ? it.text : c.type === 'question' ? it.question : it.description) ?? '';
 }
 
@@ -79,7 +98,7 @@ function CandidateCard({ card, onDone }: { card: ReviewCard; onDone(id: string, 
   const toast = useToast();
   const { a, can } = useWs();
   const { people, byId } = usePeople();
-  const it = card.item as Partial<ActionDto & CommitmentDto & DecisionDto & QuestionDto>;
+  const it = card.item as LooseItem;
   const [editing, setEditing] = useState(false);
   const [text, setText] = useState(textOf(card));
   const [assignee, setAssignee] = useState(it.assigneePersonId ?? '');

@@ -188,7 +188,7 @@ export function NotificationsPage() {
   return (
     <>
       <PageHeader title={t('nav.notifications')} subtitle={t('notif.subtitle')} />
-      <Tabs
+      <Tabs<'list' | 'prefs'>
         label={t('nav.notifications')}
         active={tab}
         onChange={setTab}
