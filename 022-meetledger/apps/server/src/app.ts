@@ -21,6 +21,14 @@ import { createEmailAdapter, type EmailAdapter } from './modules/notifications/e
 import { JobQueue, Worker } from './jobs/queue';
 import { registerModules, registerJobHandlers } from './modules';
 
+function localHostsFrom(config: Config): string[] {
+  try {
+    return [new URL(config.OLLAMA_URL).host];
+  } catch {
+    return [];
+  }
+}
+
 export interface BuildOptions {
   config: Config;
   pool?: Pool;
@@ -57,7 +65,7 @@ export async function buildApp(opts: BuildOptions): Promise<BuiltApp> {
     clock: opts.clock ?? systemClock,
     storage: opts.storage ?? new LocalEncryptedStorage(config.STORAGE_DIR, config.MASTER_KEY),
     providers: opts.providers ?? createProviders(config),
-    http: opts.http ?? new GuardedHttp(pool),
+    http: opts.http ?? new GuardedHttp(pool, globalThis.fetch, localHostsFrom(config)),
     email: opts.email ?? createEmailAdapter(config),
     jobs: new JobQueue(),
     log: app.log,

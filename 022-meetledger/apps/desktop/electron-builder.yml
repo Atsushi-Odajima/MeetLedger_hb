@@ -1,0 +1,81 @@
+# electron-builder 26 — MeetLedger Desktop
+# Signing / notarization credentials come ONLY from environment variables (never commit them):
+#   macOS signing      : CSC_LINK (Developer ID Application .p12, base64 or path) + CSC_KEY_PASSWORD
+#   macOS notarization : APPLE_API_KEY + APPLE_API_KEY_ID + APPLE_API_ISSUER   (recommended)
+#                        or APPLE_ID + APPLE_APP_SPECIFIC_PASSWORD + APPLE_TEAM_ID
+#   Windows signing    : WIN_CSC_LINK + WIN_CSC_KEY_PASSWORD (OV/EV .pfx) or Azure Trusted Signing (see docs/DESKTOP_COMPANION.md)
+# Without credentials the build still succeeds but is unsigned (macOS: notarization skipped).
+appId: jp.meetledger.desktop
+productName: MeetLedger Desktop
+copyright: Copyright © MeetLedger
+directories:
+  output: release
+  buildResources: build
+files:
+  - dist/**/*
+  - package.json
+  - "!dist/**/*.map"
+  - "!dist-smoke/**"
+extraMetadata:
+  main: dist/main.cjs
+asar: true
+# sherpa-onnx native addon + shared libraries must live outside the asar archive
+asarUnpack:
+  - node_modules/sherpa-onnx-*/**
+npmRebuild: false # sherpa-onnx-node is N-API (ABI stable) with prebuilt binaries — nothing to rebuild
+electronFuses:
+  runAsNode: false
+  enableCookieEncryption: true
+  enableNodeOptionsEnvironmentVariable: false
+  enableNodeCliInspectArguments: false
+  enableEmbeddedAsarIntegrityValidation: true
+  onlyLoadAppFromAsar: true
+  loadBrowserProcessSpecificV8Snapshot: false
+  grantFileProtocolExtraPrivileges: false
+
+mac:
+  category: public.app-category.productivity
+  icon: build/icon.png
+  target:
+    - target: dmg
+      arch: [arm64, x64]
+  hardenedRuntime: true
+  gatekeeperAssess: false
+  entitlements: build/entitlements.mac.plist
+  entitlementsInherit: build/entitlements.mac.inherit.plist
+  # notarization runs automatically when the APPLE_* variables above are set
+  notarize: true
+  extendInfo:
+    NSMicrophoneUsageDescription: MeetLedger は会議の記録のためにマイク音声を録音します。録音は画面に常に表示され、参加者への通知・同意の記録後にのみ開始できます。
+    NSAudioCaptureUsageDescription: MeetLedger はオンライン会議の相手の声（システム音声）を記録するために、このMacのシステムオーディオを収録します。録音中は常に表示されます。
+    NSScreenCaptureUsageDescription: MeetLedger はシステム音声の収録に macOS の画面共有の仕組みを使用します。画面の内容は記録しません。
+dmg:
+  sign: false
+
+win:
+  icon: build/icon.png
+  target:
+    - target: nsis
+      arch: [x64]
+  # Azure Trusted Signing alternative (uncomment and set AZURE_* env vars):
+  # azureSignOptions:
+  #   publisherName: "MeetLedger"
+  #   endpoint: "https://jpe.codesigning.azure.net"
+  #   certificateProfileName: "meetledger-public"
+  #   codeSigningAccountName: "meetledger"
+nsis:
+  oneClick: false
+  perMachine: false
+  allowToChangeInstallationDirectory: true
+  deleteAppDataOnUninstall: false
+  shortcutName: MeetLedger
+
+linux:
+  icon: build/icon.png
+  category: Office
+  target:
+    - target: AppImage
+      arch: [x64]
+  # development / internal testing only (no system-audio capture on Linux)
+
+publish: null

@@ -83,6 +83,16 @@ async function templateFor(db: Db, m: any): Promise<MeetingTemplate> {
   };
 }
 
+/** Explicit meeting/transcript language, otherwise a script-based guess ('ja' when CJK characters are common). */
+function languageOf(meetingLang: string | null, transcriptLang: string | null, segments: ExtractionSegment[]): string | null {
+  for (const l of [meetingLang, transcriptLang]) if (l && l !== 'auto') return l;
+  const text = segments.slice(0, 200).map((s) => s.text).join(' ');
+  if (!text.trim()) return null;
+  const cjk = (text.match(/[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}]/gu) ?? []).length;
+  const latin = (text.match(/[A-Za-z]/g) ?? []).length;
+  return cjk >= latin * 0.1 ? 'ja' : 'en';
+}
+
 /** Marks a meeting whose AI processing is off: needs_review only when candidates are pending, otherwise ready. */
 async function markWithoutAi(db: Db, meetingId: string) {
   await db.query(
@@ -181,7 +191,7 @@ export async function prepareExtraction(db: Db, deps: Deps, meetingId: string): 
     usedTranscript = null;
   }
   const input: ExtractionInput = {
-    meeting: { id: m.id, title: m.title, meetingType: m.meeting_type, date, timezone: tz, language: m.language ?? transcript?.language ?? null },
+    meeting: { id: m.id, title: m.title, meetingType: m.meeting_type, date, timezone: tz, language: languageOf(m.language, transcript?.language ?? null, segments) },
     template,
     participants: participants.map((p) => ({ name: p.displayName, personId: p.personId, isSelf: !!p.userId && p.userId === m.created_by })),
     segments,

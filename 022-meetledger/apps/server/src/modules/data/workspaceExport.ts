@@ -166,7 +166,7 @@ export async function writeWorkspaceExport(deps: Deps, db: Db, p: { orgId: strin
   const idsOf = new Map<string, Set<string>>();
   for (const t of scope) {
     if (!t.info.hasId) continue;
-    const r = await rows<{ id: string }>(db, `SELECT a.id FROM ${qi(t.name)} a WHERE ${t.where('a')}`, params);
+    const r = await rows<{ id: string }>(db, `SELECT a.id FROM ${qi(t.name)} a WHERE $1::uuid IS NOT NULL AND $2::uuid[] IS NOT NULL AND ${t.where('a')}`, params);
     idsOf.set(t.name, new Set(r.map((x) => x.id)));
   }
   const allIds = new Set<string>();
@@ -197,8 +197,8 @@ export async function writeWorkspaceExport(deps: Deps, db: Db, p: { orgId: strin
     const order = t.info.hasId ? 'ORDER BY a.id' : '';
     for (;;) {
       const page: { j: any }[] = t.info.hasId
-        ? await rows<{ j: any }>(db, `SELECT to_jsonb(a) AS j FROM ${qi(t.name)} a WHERE ${t.where('a')} AND ($3::uuid IS NULL OR a.id > $3) ${order} LIMIT 1000`, [...params, lastId])
-        : await rows<{ j: any }>(db, `SELECT to_jsonb(a) AS j FROM ${qi(t.name)} a WHERE ${t.where('a')}`, params);
+        ? await rows<{ j: any }>(db, `SELECT to_jsonb(a) AS j FROM ${qi(t.name)} a WHERE $1::uuid IS NOT NULL AND $2::uuid[] IS NOT NULL AND ${t.where('a')} AND ($3::uuid IS NULL OR a.id > $3) ${order} LIMIT 1000`, [...params, lastId])
+        : await rows<{ j: any }>(db, `SELECT to_jsonb(a) AS j FROM ${qi(t.name)} a WHERE $1::uuid IS NOT NULL AND $2::uuid[] IS NOT NULL AND ${t.where('a')}`, params);
       for (const { j: row } of page) {
         for (const c of secret) delete row[c];
         let drop = false;

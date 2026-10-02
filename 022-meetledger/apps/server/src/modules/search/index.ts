@@ -28,7 +28,7 @@ const mod: ModuleDef = {
       const { workspaceId } = parse(wsParams, req.params);
       const ctx = await workspaceCtx(deps, req, workspaceId);
       const b = body(req, askBodySchema);
-      return ctx.tx((db) => runAsk(db, ctx, b));
+      return runAsk(ctx, b);
     });
 
     app.get('/api/w/:workspaceId/ai/privacy-preview', async (req) => {

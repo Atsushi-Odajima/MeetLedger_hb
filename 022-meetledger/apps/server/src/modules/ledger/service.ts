@@ -141,6 +141,15 @@ async function completeParty(db: Db, scope: LedgerScope, e: Edits, keys: [string
   }
   if (e[pk] === null && e[uk] === undefined) e[uk] = null;
   if (e[uk] === null && e[pk] === undefined) e[pk] = null;
+  // Clearing the person/user without new text means "unassigned": do not keep a stale name.
+  if (e[pk] === null && e[uk] === null && e[tk] === undefined) e[tk] = null;
+}
+
+/** Ledger content changed: let the search module re-index the meeting (no-op for workspace-level items). */
+export async function enqueueReindex(db: Db, jobs: { enqueue: (db: Db, j: any) => Promise<unknown> }, orgId: string, meetingIds: (string | null | undefined)[]) {
+  for (const id of new Set(meetingIds.filter((x): x is string => !!x))) {
+    await jobs.enqueue(db, { orgId, type: 'index.meeting', key: `index:${id}:${Date.now()}`, payload: { meetingId: id } });
+  }
 }
 
 /** Applies validated edits to a row. Returns the updated row (re-loaded with meeting info) and a diff. */

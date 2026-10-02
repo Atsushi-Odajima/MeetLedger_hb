@@ -73,7 +73,9 @@ describe('external writes: preview + explicit approval, executed exactly once', 
     const token = await createApiToken(member.client, ws, ['read', 'write']);
     expect((await bearer(env, token).post(`/api/w/${ws}/external-writes/${req.id}/approve`)).status).toBe(403);
     // viewers / other members cannot approve someone else's request
-    expect((await viewer.client.post(`/api/w/${ws}/external-writes/${req.id}/approve`)).status).toBe(404);
+    expect((await viewer.client.post(`/api/w/${ws}/external-writes/${req.id}/approve`)).status).toBe(403);
+    const m2 = await env.addUser(owner, orgId, ws, 'member2@example.com', 'member');
+    expect((await m2.client.post(`/api/w/${ws}/external-writes/${req.id}/approve`)).status).toBe(404);
     expect(slackCalls()).toHaveLength(0);
 
     // concurrent approvals → exactly one external call

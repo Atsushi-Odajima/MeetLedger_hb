@@ -14,10 +14,10 @@ import type { ExternalCall } from '../src/privacy/externalHttp';
 describe('search text helpers', () => {
   it('splits CJK / Latin / digit boundaries so mixed text is indexed per script', () => {
     expect(splitScripts('ProofFlowは10月公開予定')).toBe('ProofFlow は 10 月公開予定');
-    // the shared tokenizer alone keeps the whole mixed run as one lexeme
-    expect(toTsvectorLiteral('ProofFlowは10月公開予定')).toBe("'proofflowは10月公開予定':1");
+    // the shared tokenizer splits at script boundaries itself (fixed upstream); splitScripts stays as a no-op safety net
+    expect(toTsvectorLiteral('ProofFlowは10月公開予定')).toBe("'proofflow':1 'は':2 '10':3 '月公':4 '公開':5 '開予':6 '予定':7");
     expect(indexTsv('ProofFlowは10月公開予定')).toBe("'proofflow':1 'は':2 '10':3 '月公':4 '公開':5 '開予':6 '予定':7");
-    expect(queryTsq('10月公開')).toBe("(('10' <-> '月公' <-> '公開') | '10月公開')");
+    expect(queryTsq('10月公開')).toBe("('10' <-> '月公' <-> '公開')");
     expect(queryTsq('価格')).toBe("'価格'");
     expect(queryTsq('価格 合意')).toBe("'価格' & '合意'");
     expect(queryTsq('？？ !!')).toBeNull();

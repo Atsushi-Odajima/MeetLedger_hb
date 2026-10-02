@@ -36,6 +36,17 @@ async function enqueueIndex(deps: Deps, db: Db, orgId: string, meetingId: string
   await deps.jobs.enqueue(db, { orgId, type: 'index.meeting', key: `index:${meetingId}:${Date.now()}`, payload: { meetingId } });
 }
 
+/** Provider availability (models downloaded / API key configured) for UI hints; never throws. */
+async function providerAvailability(deps: Deps, providerId: string | null): Promise<{ available: boolean; unavailableReason: string | null }> {
+  if (!providerId) return { available: false, unavailableReason: null };
+  try {
+    const a = await deps.providers.transcription(providerId).available();
+    return { available: a.ok, unavailableReason: a.ok ? null : (a.reason ?? 'unavailable') };
+  } catch (e) {
+    return { available: false, unavailableReason: e instanceof Error ? e.message.slice(0, 200) : 'unavailable' };
+  }
+}
+
 async function workspaceSettings(db: Db, workspaceId: string) {
   const w = await one<{ settings: unknown }>(db, 'SELECT settings FROM workspaces WHERE id=$1', [workspaceId]);
   return wsSettings(w?.settings);
@@ -162,6 +173,7 @@ export default async function audioRoutes(app: FastifyInstance, deps: Deps) {
           transcription: { allowed: !!choice.providerId, provider: choice.providerId, isLocal: choice.decision.isLocal, reason: choice.decision.reason },
         };
       });
+      Object.assign(res.transcription, await providerAvailability(deps, res.transcription.provider));
       storedKey = null;
       return res;
     } finally {
@@ -259,7 +271,13 @@ export default async function audioRoutes(app: FastifyInstance, deps: Deps) {
         meetingId: id,
         meetingStatus: m.status,
         transcriptionMode: m.transcription_mode,
-        transcription: { allowed: !!choice.providerId, provider: choice.providerId, isLocal: choice.decision.isLocal, reason: choice.decision.reason },
+        transcription: {
+          allowed: !!choice.providerId,
+          provider: choice.providerId,
+          isLocal: choice.decision.isLocal,
+          reason: choice.decision.reason,
+          ...(await providerAvailability(deps, choice.providerId)),
+        },
         jobs: jobs.map((j) => ({
           id: j.id,
           type: j.type,

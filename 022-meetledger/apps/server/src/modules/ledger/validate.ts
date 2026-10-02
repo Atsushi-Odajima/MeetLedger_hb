@@ -64,6 +64,25 @@ export interface ValidatedExtraction {
   stats: { received: number; kept: number; dropped: Record<string, number>; textReplaced: number; partiesDropped: number; duesDropped: number };
 }
 
+/** true when `a` can be obtained from `b` by deleting characters only. */
+function isSubsequence(a: string, b: string): boolean {
+  let j = 0;
+  for (let i = 0; i < b.length && j < a.length; i++) if (b[i] === a[j]) j++;
+  return j === a.length;
+}
+
+/**
+ * A quote matches its cited segments when it is a normalized substring of them, or — tolerating omitted fillers /
+ * punctuation — a deletion-only subsequence with strong token overlap. Any substitution (10月 -> 12月, A案 -> B案) fails.
+ */
+export function quoteMatches(quote: string, cited: string): boolean {
+  const nq = norm(quote);
+  const nc = norm(cited);
+  if (!nq) return false;
+  if (nc.includes(nq)) return true;
+  return tokenSet(stripInaudible(quote)).size >= 2 && isSubsequence(nq, nc) && coverage(quote, cited) >= 0.8;
+}
+
 const MAX_ITEMS = 100;
 const GROUNDED_TEXT = 0.3;
 const GROUNDED_SUMMARY = 0.5;
@@ -99,9 +118,8 @@ export function validateExtraction(input: ExtractionInput, raw: ExtractionOutput
     let quote = typeof ev.quote === 'string' ? ev.quote.trim() : '';
     if (!norm(quote)) {
       quote = truncate(usable[0].text.trim(), 480);
-    } else {
-      const ok = norm(cited).includes(norm(quote)) || (tokenSet(stripInaudible(quote)).size >= 2 && coverage(quote, cited) >= 0.8);
-      if (!ok) return void drop('quote_mismatch'), null;
+    } else if (!quoteMatches(quote, cited)) {
+      return void drop('quote_mismatch'), null;
     }
     // Narrow the range to the segments that actually contain the quote.
     const nq = norm(quote);

@@ -83,7 +83,7 @@ const rules: { re: RegExp; resolve: Resolver }[] = [
   { re: new RegExp(`\\b(\\d{1,2})(?:st|nd|rd|th)?\\s+(?:of\\s+)?${EN_MON}\\b`, 'gi'), resolve: (m, b) => ({ date: withYear(b, MON_EN[m[2].slice(0, 3).toLowerCase()], +m[1]), explicit: true }) },
   // ---- relative / approximate (inferred)
   {
-    re: /(\d{1,2})月\s*(末|中|いっぱい|上旬|中旬|下旬)/g,
+    re: /(\d{1,2})月\s*(上旬|中旬|下旬|いっぱい|末|中)/g,
     resolve: (m, b) => {
       const mo = +m[1];
       const first = withYear(b, mo, 1);

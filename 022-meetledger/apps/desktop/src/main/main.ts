@@ -65,7 +65,15 @@ const serverOrigin = () => config.serverUrl;
 const osVersion = process.getSystemVersion();
 const isWin = (w: BrowserWindow | null, wc: WebContents) => !!w && !w.isDestroyed() && w.webContents === wc;
 
-const nativeBase = app.isPackaged ? path.join(process.resourcesPath, 'app.asar.unpacked', 'node_modules') : path.join(app.getAppPath(), 'node_modules');
+function nativeModulesDir(): string {
+  if (app.isPackaged) return path.join(process.resourcesPath, 'app.asar.unpacked', 'node_modules');
+  try {
+    return path.dirname(path.dirname(require.resolve('sherpa-onnx-node/package.json')));
+  } catch {
+    return path.join(app.getAppPath(), 'node_modules');
+  }
+}
+const nativeBase = nativeModulesDir();
 const sherpaPlatform = `${process.platform === 'win32' ? 'win' : process.platform}-${process.arch}`;
 const asr = new AsrHost(path.join(distDir, 'asr-worker.cjs'), [path.join(nativeBase, `sherpa-onnx-${sherpaPlatform}`)]);
 

@@ -87,7 +87,7 @@ describe('audio upload → processing → transcript', () => {
     const up = await uploadMedia(owner.client, ws, meetingId, wav);
     expect(up.status).toBe(200);
     expect(up.body.created).toBe(true);
-    expect(up.body.transcription).toMatchObject({ allowed: true, provider: 'fixture', isLocal: true });
+    expect(up.body.transcription).toMatchObject({ allowed: true, provider: 'fixture', isLocal: true, available: true });
     const before = await env.tenantTx(owner.orgId, async (db) => (await db.query('SELECT status FROM meetings WHERE id=$1', [meetingId])).rows[0]);
     expect(before.status).toBe('processing');
 
@@ -165,7 +165,7 @@ describe('audio upload → processing → transcript', () => {
   });
 
   it('#3 [inaudible] はAI補完されずそのまま残る（空・低信頼度・表記揺れ）', async () => {
-    const m = await newMeeting({ audioRetention: '7d' });
+    const m = await newMeeting({ audioRetention: '7d', aiEnabled: false });
     const wav3 = makeSineWav(join(dir, 'inaudible.wav'), { seconds: 6, freq: 523 });
     registerFixtureTranscript(await normalizedPcmSha(wav3), {
       segments: [
@@ -189,6 +189,10 @@ describe('audio upload → processing → transcript', () => {
     expect(segs[4].flags).toContain('inaudible');
     expect(segs[4].flags).not.toContain('low_confidence');
     expect(t.body.qualityFlags).toMatchObject({ inaudibleCount: 4, lowConfidenceCount: 2 });
+    // AI OFF meeting: no ai.extract job is enqueued (index only).
+    const jobs = await jobsFor(m.id);
+    expect(jobs.some((j) => j.type === 'ai.extract')).toBe(false);
+    expect(jobs.some((j) => j.type === 'index.meeting')).toBe(true);
   });
 
   it('#4 話者マッピング編集（同一Workspaceの人物のみ・viewer不可・音声から自動特定しない）', async () => {

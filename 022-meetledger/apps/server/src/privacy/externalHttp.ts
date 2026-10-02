@@ -37,15 +37,33 @@ function bodySize(init?: RequestInit): number {
  * The ONLY path for outbound calls carrying customer data. It re-checks the meeting's privacy flags in the DB
  * (last line of defense against AI-OFF / local-mode leaks) and records metadata (never content) in external_calls.
  */
+const LOOPBACK = new Set(['localhost', '127.0.0.1', '[::1]', '::1']);
+
 export class GuardedHttp implements ExternalHttp {
+  /**
+   * @param localHosts hosts (host[:port]) that count as on-premise for decisions marked isLocal (e.g. the Ollama URL).
+   *                   Loopback hosts are always local.
+   */
   constructor(
     private pool: Pool,
     private fetchImpl: typeof fetch = globalThis.fetch,
+    private localHosts: string[] = [],
   ) {}
+
+  isLocalTarget(url: string): boolean {
+    try {
+      const u = new URL(url);
+      return LOOPBACK.has(u.hostname) || this.localHosts.includes(u.host);
+    } catch {
+      return false;
+    }
+  }
 
   async verify(call: ExternalCall) {
     if (CONTENT_KINDS.includes(call.kind)) {
-      if (!call.decision || !call.decision.allowed || call.decision.isLocal) throw policyDenied(`External ${call.kind} call without an allowing policy decision`);
+      if (!call.decision || !call.decision.allowed) throw policyDenied(`External ${call.kind} call without an allowing policy decision`);
+      // A "local" decision (e.g. Ollama) may only reach loopback / explicitly configured on-premise hosts.
+      if (call.decision.isLocal && !this.isLocalTarget(call.url)) throw policyDenied(`Local-only ${call.kind} decision cannot call a remote host`);
     }
     const ids = call.meetingIds ?? [];
     if (!ids.length) return;
@@ -86,6 +104,8 @@ export class GuardedHttp implements ExternalHttp {
 
   async fetch(call: ExternalCall): Promise<Response> {
     await this.verify(call);
+    // On-premise calls (local decision to a local host) are not third-party transfers and are not recorded in external_calls.
+    if (call.decision?.isLocal && this.isLocalTarget(call.url)) return this.fetchImpl(call.url, call.init);
     try {
       const res = await this.fetchImpl(call.url, call.init);
       await this.record(call, String(res.status));

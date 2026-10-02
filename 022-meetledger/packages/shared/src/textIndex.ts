@@ -4,7 +4,8 @@
 // dictionary or OS locale is involved (works identically on every install).
 
 const CJK = '\\p{Script=Han}\\p{Script=Hiragana}\\p{Script=Katakana}ー々〆ヶ';
-const RUN_RE = new RegExp(`([${CJK}]+)|([\\p{L}\\p{N}_]+)`, 'gu');
+// Second alternative excludes CJK so that "ProofFlowは10月" splits into proofflow / は... / 10 / 月.
+const RUN_RE = new RegExp(`([${CJK}]+)|((?:(?![${CJK}])[\\p{L}\\p{N}_])+)`, 'gu');
 const CJK_ONLY_RE = new RegExp(`^[${CJK}]+$`, 'u');
 
 export const MAX_INDEX_TOKENS = 20000;

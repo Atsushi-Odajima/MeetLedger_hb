@@ -55,6 +55,12 @@ async function walk(dir: string, base = dir): Promise<string[]> {
   return out.sort();
 }
 
+async function makeStaging(dir: string | undefined, prefix: string) {
+  const base = resolve(dir ?? tmpdir());
+  await mkdir(base, { recursive: true });
+  return mkdtemp(join(base, prefix));
+}
+
 async function withSnapshot<T>(pool: Pool, fn: (db: Db) => Promise<T>): Promise<T> {
   const db = await pool.connect();
   try {
@@ -84,7 +90,7 @@ export interface BackupOptions {
 
 export async function createBackup(o: BackupOptions): Promise<BackupManifest> {
   const log = o.log ?? (() => undefined);
-  const staging = await mkdtemp(join(o.tmpDir ?? tmpdir(), 'ml-backup-'));
+  const staging = await makeStaging(o.tmpDir, 'ml-backup-');
   try {
     await mkdir(join(staging, 'tables'), { recursive: true });
     const { migrations, tables } = await withSnapshot(o.pool, async (db) => {
@@ -210,7 +216,7 @@ async function* lineBatches(path: string, max = 500, maxBytes = 8 * 1024 * 1024)
 
 export async function restoreBackup(o: RestoreOptions): Promise<RestoreResult> {
   const log = o.log ?? (() => undefined);
-  const staging = await mkdtemp(join(o.tmpDir ?? tmpdir(), 'ml-restore-'));
+  const staging = await makeStaging(o.tmpDir, 'ml-restore-');
   try {
     // node-tar strips absolute paths and refuses '..' entries (no path traversal on extraction).
     await tar.x({ file: resolve(o.input), cwd: staging, strict: true });
@@ -294,7 +300,7 @@ export async function restoreBackup(o: RestoreOptions): Promise<RestoreResult> {
 
 /** Reads only the manifest of a backup archive (for `restore --dry-run` style checks and docs). */
 export async function readBackupManifest(input: string, tmp?: string): Promise<BackupManifest> {
-  const staging = await mkdtemp(join(tmp ?? tmpdir(), 'ml-manifest-'));
+  const staging = await makeStaging(tmp, 'ml-manifest-');
   try {
     await tar.x({ file: resolve(input), cwd: staging, strict: true }, ['manifest.json']);
     return await readManifest(staging);

@@ -9,14 +9,15 @@
   "main": "dist/main.cjs",
   "scripts": {
     "build": "node scripts/build.mjs",
+    "build:release": "node scripts/build.mjs --local-asr=real",
     "typecheck": "tsc -p tsconfig.json && tsc -p tsconfig.renderer.json",
     "test": "vitest run",
     "start": "npm run build && electron .",
-    "smoke": "npm run build && node scripts/smoke.mjs",
+    "smoke": "node scripts/build.mjs --outdir=dist-smoke --local-asr=stub && node scripts/smoke.mjs",
     "icons": "node scripts/make-placeholder-icon.mjs",
     "dist:linux": "npm run build && electron-builder --linux AppImage",
-    "dist:win": "npm run build && electron-builder --win nsis --x64",
-    "dist:mac": "npm run build && electron-builder --mac dmg --arm64 --x64"
+    "dist:win": "npm run build:release && electron-builder --win nsis --x64",
+    "dist:mac": "npm run build:release && electron-builder --mac dmg --arm64 --x64"
   },
   "engines": {
     "node": ">=22.12"

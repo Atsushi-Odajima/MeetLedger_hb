@@ -42,5 +42,5 @@ export function isPlayable(m: { audio_retention: string }, asset: { deleted_at: 
  */
 export async function deleteMediaAsset(deps: Pick<Deps, 'storage' | 'clock'>, db: Db, asset: { id: string; storage_key: string }): Promise<void> {
   await deps.storage.delete(asset.storage_key);
-  await db.query('UPDATE media_assets SET deleted_at = coalesce(deleted_at, $2) WHERE id = $1', [asset.id, deps.clock.now()]);
+  await db.query('UPDATE media_assets SET deleted_at = coalesce(deleted_at, $2), retention_until = NULL WHERE id = $1', [asset.id, deps.clock.now()]);
 }

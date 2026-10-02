@@ -165,6 +165,7 @@ describe('data: full workspace export → import (E2E-9 server flow)', () => {
     expect(['queued', 'running']).toContain(pending.body.status);
     await env.worker.drain();
     const st = await owner.client.get(`${W()}/export/full/${start.body.jobId}`);
+    if (st.body.status !== 'ready') throw new Error(`export job: ${JSON.stringify((await sys(env, (db) => db.query('SELECT status, last_error FROM jobs WHERE id=$1', [start.body.jobId]))).rows)}`);
     expect(st.body.status).toBe('ready');
     expect(st.body.url).toMatch(/\/download\?u=.+&exp=\d+&sig=/);
     expect(st.body.excludedMeetings).toBe(1);

@@ -126,13 +126,17 @@ describe('#17 AI OFF / Confidential meeting with cloud providers configured', ()
   });
 });
 
-describe('ollama embeddings (self-hosted) under the current GuardedHttp', () => {
-  it('goes through deps.http with kind embedding + local decision; a guard rejection falls back to local-hash and is reported', async () => {
+describe('ollama embeddings (self-hosted)', () => {
+  it('goes through deps.http with kind embedding + local decision to the on-premise host; no external_calls record', async () => {
     const OLLAMA_ENV = { EMBEDDING_PROVIDER: 'ollama', OLLAMA_URL: 'http://127.0.0.1:11434' };
     const e2 = await createTestEnv({ providers: searchRegistry([new FakeAnswerProvider()], OLLAMA_ENV), env: OLLAMA_ENV });
     try {
       const o = await e2.setupOwner('ollama-owner@example.com');
       await o.client.patch(`/api/w/${o.workspaceId}/settings`, { ai: { embeddings: 'ollama' } });
+      e2.http.responder = (call) => {
+        const input = JSON.parse(String(call.init?.body)).input as string[];
+        return new Response(JSON.stringify({ embeddings: input.map((_, i) => Array.from({ length: 768 }, (_, k) => ((k + i) % 7) / 7)) }), { status: 200 });
+      };
       const m = await mkMeeting(o.client, o.workspaceId, { title: 'Ollama 会議' });
       await insertTranscript(e2, o.orgId, m.id, [{ speaker: 'Speaker 1', text: '価格の相談' }]);
       await e2.worker.drain();
@@ -143,8 +147,12 @@ describe('ollama embeddings (self-hosted) under the current GuardedHttp', () => 
       expect(calls.length).toBeGreaterThan(0);
       expect(calls[0]).toMatchObject({ provider: 'ollama', meetingIds: [m.id], decision: { provider: 'ollama', isLocal: true }, url: 'http://127.0.0.1:11434/api/embed' });
       const job = await e2.tenantTx(o.orgId, async (db) => (await db.query("SELECT result FROM jobs WHERE type='index.meeting' AND status='succeeded' ORDER BY created_at DESC LIMIT 1")).rows[0].result);
-      expect(job).toMatchObject({ status: 'indexed', aiIndexed: true, embeddingModel: 'local-hash-384' });
-      expect(job.embeddingFallback).toMatch(/policy decision/);
+      expect(job).toMatchObject({ status: 'indexed', aiIndexed: true });
+      expect(job.embeddingModel).toMatch(/nomic-embed-text/);
+      expect(job.embeddingFallback ?? null).toBeNull();
+      // loopback Ollama is on-premise: not recorded as a third-party transfer
+      const ext = await e2.tenantTx(o.orgId, async (db) => (await db.query("SELECT count(*)::int n FROM external_calls WHERE kind='embedding'")).rows[0].n);
+      expect(ext).toBe(0);
       expect(await countRows(e2, o.orgId, 'ai_chunks', m.id)).toBeGreaterThan(0);
     } finally {
       await e2.close();

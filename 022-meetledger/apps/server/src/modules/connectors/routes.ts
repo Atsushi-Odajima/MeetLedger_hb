@@ -70,7 +70,8 @@ async function loadConnector(db: Db, ctx: WsCtx, id: string, mode: 'owner' | 'ow
 
 const rangeQuery = z.object({ from: zIso.optional(), to: zIso.optional() });
 
-const writeConnectorSchema = z.discriminatedUnion('provider', [
+// (plain union: zod v4 discriminatedUnion does not allow the two Slack modes to share provider='slack')
+const writeConnectorSchema = z.union([
   z.object({
     provider: z.literal('slack'),
     displayName: z.string().trim().min(1).max(100).optional(),

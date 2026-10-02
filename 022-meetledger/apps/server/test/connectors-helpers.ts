@@ -93,7 +93,7 @@ export function injectFetch(env: TestEnv) {
   return async (input: string | URL, init: RequestInit = {}): Promise<Response> => {
     const u = new URL(String(input));
     const headers: Record<string, string> = {};
-    new Headers(init.headers as HeadersInit).forEach((v, k) => (headers[k] = v));
+    new Headers(init.headers as any).forEach((v, k) => (headers[k] = v));
     const res = await env.app.inject({ method: (init.method ?? 'GET') as any, url: `${u.pathname}${u.search}`, headers, payload: (init.body as string) ?? undefined });
     const h = new Headers();
     for (const [k, v] of Object.entries(res.headers)) if (v !== undefined) h.set(k, Array.isArray(v) ? v.join(', ') : String(v));

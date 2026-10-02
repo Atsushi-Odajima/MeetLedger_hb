@@ -126,6 +126,26 @@ const pickCommitment = (c: any) => ({
 });
 const pickQuestion = (q: any) => ({ id: q.id, question: q.question, status: q.status, due_date: q.dueDate ?? null, answer: q.answerText ?? null, meeting_id: q.meetingId ?? null });
 
+/** Review Inbox → compact candidate list. Accepts `{items:[{type,item,flags}]}` (ledger module) or per-type arrays. */
+function reviewCandidates(body: any): { type: string; id: string; text: string | null; meeting_id: string | null; assignee: string | null; due_date: string | null; flags: unknown; quote: string | null }[] {
+  const out: any[] = [];
+  const push = (type: string, x: any, flags: unknown) =>
+    x?.id &&
+    out.push({
+      type,
+      id: x.id,
+      text: x.text ?? x.description ?? x.question ?? null,
+      meeting_id: x.meetingId ?? null,
+      assignee: x.assigneeText ?? x.promisedByText ?? null,
+      due_date: x.dueDate ?? null,
+      flags: flags ?? null,
+      quote: x.source?.quote ?? null,
+    });
+  if (Array.isArray(body?.items)) for (const e of body.items) push(e.type, e.item ?? e, e.flags);
+  else for (const [k, v] of Object.entries(body ?? {})) if (Array.isArray(v)) for (const x of v) push(k.replace(/s$/, ''), x, null);
+  return out;
+}
+
 // ------------------------------------------------------------------ annotations
 
 const READ: ToolAnnotations = { readOnlyHint: true, openWorldHint: false };
@@ -319,7 +339,7 @@ export function buildMcpServer(deps: Pick<Deps, 'config' | 'pool' | 'clock' | 'l
     },
     async (b, a) => {
       if (!b.has('GET', '/decisions')) return unavailable('The decision ledger');
-      const r = await b.get('/decisions', { view: 'current', projectId: a.project_id, seriesId: a.series_id, personId: a.person_id, meetingId: a.meeting_id });
+      const r = await b.get('/decisions', { view: 'current', projectId: a.project_id, seriesId: a.series_id, personId: a.person_id, meetingId: a.meeting_id, limit: a.limit ?? 30 });
       if (r.status !== 200) return restError(r);
       return ok({ decisions: list(r.body, 'decisions').slice(0, a.limit ?? 30).map(pickDecision) });
     },
@@ -339,8 +359,8 @@ export function buildMcpServer(deps: Pick<Deps, 'config' | 'pool' | 'clock' | 'l
     },
     async (b, a) => {
       if (!b.has('GET', '/actions')) return unavailable('The action ledger');
-      const status = a.status === 'open' || a.status === 'all' ? undefined : a.status;
-      const r = await b.get('/actions', { assignee: 'me', status, overdue: a.overdue_only ? 1 : undefined });
+      const status = a.status === 'all' ? undefined : a.status;
+      const r = await b.get('/actions', { assignee: 'me', status, overdue: a.overdue_only ? 1 : undefined, limit: a.limit ?? 30 });
       if (r.status !== 200) return restError(r);
       let items = list(r.body, 'actions');
       if (a.status === 'open') items = items.filter((x) => x.status === 'confirmed' || x.status === 'in_progress');
@@ -358,7 +378,7 @@ export function buildMcpServer(deps: Pick<Deps, 'config' | 'pool' | 'clock' | 'l
     },
     async (b, a) => {
       if (!b.has('GET', '/commitments')) return unavailable('The commitment ledger');
-      const r = await b.get('/commitments', { direction: a.direction ?? 'all', status: a.status === 'all' ? undefined : (a.status ?? 'open') });
+      const r = await b.get('/commitments', { direction: a.direction ?? 'all', status: a.status === 'all' ? undefined : (a.status ?? 'open'), limit: a.limit ?? 30 });
       if (r.status !== 200) return restError(r);
       return ok({ commitments: list(r.body, 'commitments').slice(0, a.limit ?? 30).map(pickCommitment) });
     },
@@ -374,7 +394,7 @@ export function buildMcpServer(deps: Pick<Deps, 'config' | 'pool' | 'clock' | 'l
     },
     async (b, a) => {
       if (!b.has('GET', '/questions')) return unavailable('The open question ledger');
-      const r = await b.get('/questions', { status: 'open', meetingId: a.meeting_id, projectId: a.project_id });
+      const r = await b.get('/questions', { status: 'open', meetingId: a.meeting_id, projectId: a.project_id, limit: a.limit ?? 30 });
       if (r.status !== 200) return restError(r);
       let items = list(r.body, 'questions');
       if (a.meeting_id) items = items.filter((q) => !q.meetingId || q.meetingId === a.meeting_id);
@@ -404,7 +424,8 @@ export function buildMcpServer(deps: Pick<Deps, 'config' | 'pool' | 'clock' | 'l
       if (action === 'list') {
         const r = await b.get('/review', { meetingId: a.meeting_id });
         if (r.status !== 200) return restError(r);
-        return ok({ meeting_id: a.meeting_id ?? null, review: r.body });
+        const candidates = reviewCandidates(r.body);
+        return ok({ meeting_id: a.meeting_id ?? null, candidates: candidates.slice(0, 100), total: candidates.length, counts: r.body?.counts ?? null });
       }
       const items: z.infer<typeof zItem>[] = a.items ?? [];
       if (!items.length) return fail('invalid_request', 'items are required for accept / reject');
@@ -414,15 +435,12 @@ export function buildMcpServer(deps: Pick<Deps, 'config' | 'pool' | 'clock' | 'l
         a,
         async () => {
           const r = await b.get('/review', { meetingId: a.meeting_id });
-          const flat: Record<string, any> = {};
-          if (r.status === 200 && r.body && typeof r.body === 'object') {
-            for (const v of Object.values(r.body)) for (const x of Array.isArray(v) ? v : []) if (x?.id) flat[x.id] = x;
-          }
+          const byId = new Map(r.status === 200 ? reviewCandidates(r.body).map((c) => [c.id, c]) : []);
           return {
             action,
             items: items.map((it) => {
-              const c = flat[it.id];
-              return { type: it.type, id: it.id, text: c?.text ?? c?.description ?? c?.question ?? null, confirm_inferred: !!it.confirm_inferred };
+              const c = byId.get(it.id);
+              return { type: it.type, id: it.id, text: c?.text ?? null, found_in_review_inbox: !!c, confirm_inferred: !!it.confirm_inferred, flags: c?.flags ?? null };
             }),
           };
         },

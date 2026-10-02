@@ -175,30 +175,47 @@ function lexScore(text: string, keywords: string[]): number {
   return hit / keywords.length;
 }
 
-export async function runAsk(db: Db, ctx: WsCtx, b: AskBody): Promise<AskResult> {
+/**
+ * Runs the ask pipeline. DB work happens in short tenant transactions; external calls (question embedding,
+ * provider.answer) happen OUTSIDE any transaction (GuardedHttp needs its own connection; no pool starvation).
+ */
+export async function runAsk(ctx: WsCtx, b: AskBody): Promise<AskResult> {
   const deps = ctx.deps;
   const tz = safeTz(ctx.user.timezone);
   const locale: 'ja' | 'en' = ctx.user.locale === 'en' ? 'en' : 'ja';
   const unknown = locale === 'en' ? UNKNOWN_ANSWER_EN : UNKNOWN_ANSWER_JA;
   const now = deps.clock.now();
-  if (b.personId && !(await one(db, 'SELECT 1 FROM people WHERE id=$1 AND workspace_id=$2 AND deleted_at IS NULL', [b.personId, ctx.workspaceId]))) throw notFound('Person not found');
-  if (b.projectId && !(await one(db, 'SELECT 1 FROM projects WHERE id=$1 AND workspace_id=$2', [b.projectId, ctx.workspaceId]))) throw notFound('Project not found');
+  const qLocal = hashEmbed(b.question);
 
-  // ---- hints: only rows of THIS workspace can ever be matched (lists are workspace-filtered)
-  const people = await rows<{ id: string; name: string; organization: string | null }>(
-    db,
-    'SELECT id, name, organization FROM people WHERE workspace_id=$1 AND deleted_at IS NULL ORDER BY created_at LIMIT 5000',
-    [ctx.workspaceId],
-  );
-  const projects = await rows<{ id: string; name: string; client_name: string | null }>(db, 'SELECT id, name, client_name FROM projects WHERE workspace_id=$1 LIMIT 2000', [
-    ctx.workspaceId,
-  ]);
-  const hints = parseAskHints(b.question, now, tz, people, projects);
-  const explicit = { projectId: b.projectId, personId: b.personId, from: parseBound(b.from, tz, 'from'), to: parseBound(b.to, tz, 'to') };
-  // Content keywords only: a hinted project / client name is SCOPE (applied as a filter), not evidence by itself.
-  const keywords = [...hints.keywords];
-  const kq = keywordsTsq(keywords);
-  const settings = wsSettings((await one<any>(db, 'SELECT settings FROM workspaces WHERE id=$1', [ctx.workspaceId]))?.settings);
+  // ---- phase A (tx): validation, hint dictionaries, settings
+  const A = await ctx.tx(async (db) => {
+    if (b.personId && !(await one(db, 'SELECT 1 FROM people WHERE id=$1 AND workspace_id=$2 AND deleted_at IS NULL', [b.personId, ctx.workspaceId])))
+      throw notFound('Person not found');
+    if (b.projectId && !(await one(db, 'SELECT 1 FROM projects WHERE id=$1 AND workspace_id=$2', [b.projectId, ctx.workspaceId]))) throw notFound('Project not found');
+
+    // ---- hints: only rows of THIS workspace can ever be matched (lists are workspace-filtered)
+    const people = await rows<{ id: string; name: string; organization: string | null }>(
+      db,
+      'SELECT id, name, organization FROM people WHERE workspace_id=$1 AND deleted_at IS NULL ORDER BY created_at LIMIT 5000',
+      [ctx.workspaceId],
+    );
+    const projects = await rows<{ id: string; name: string; client_name: string | null }>(db, 'SELECT id, name, client_name FROM projects WHERE workspace_id=$1 LIMIT 2000', [
+      ctx.workspaceId,
+    ]);
+    const hints = parseAskHints(b.question, now, tz, people, projects);
+    const explicit = { projectId: b.projectId, personId: b.personId, from: parseBound(b.from, tz, 'from'), to: parseBound(b.to, tz, 'to') };
+    // Content keywords only: a hinted project / client name is SCOPE (applied as a filter), not evidence by itself.
+    const keywords = [...hints.keywords];
+    const kq = keywordsTsq(keywords);
+    const settings = wsSettings((await one<any>(db, 'SELECT settings FROM workspaces WHERE id=$1', [ctx.workspaceId]))?.settings);
+    const embDecision = embeddingDecision(settings, deps.config);
+    const embProvider = embeddingProviderFor(deps, embDecision);
+    const hasModelChunks =
+      embProvider.model !== LOCAL_HASH_MODEL &&
+      !!(await one(db, 'SELECT 1 FROM ai_chunks WHERE workspace_id=$1 AND embedding_model=$2 LIMIT 1', [ctx.workspaceId, embProvider.model]));
+    return { hints, explicit, keywords, kq, settings, embDecision, embProvider, hasModelChunks };
+  });
+  const { hints, explicit, keywords, kq, settings, embDecision, embProvider } = A;
   const typeFilter = hints.types;
   const scopeInfo = {
     persons: [...hints.persons.map((p) => ({ id: p.id, name: p.name }))],
@@ -211,13 +228,10 @@ export async function runAsk(db: Db, ctx: WsCtx, b: AskBody): Promise<AskResult>
     keywords,
   };
 
-  // ---- query vectors: local hash always (cheap, no external call); the workspace's model only if chunks exist for it
-  const qLocal = hashEmbed(b.question);
+  // ---- phase B (no tx): query vectors. Local hash always (no external call); the workspace's model only if chunks exist for it
   let qModel: string | null = null;
   let qVec: number[] | null = null;
-  const embDecision = embeddingDecision(settings, deps.config);
-  const embProvider = embeddingProviderFor(deps, embDecision);
-  if (embProvider.model !== LOCAL_HASH_MODEL && (await one(db, 'SELECT 1 FROM ai_chunks WHERE workspace_id=$1 AND embedding_model=$2 LIMIT 1', [ctx.workspaceId, embProvider.model]))) {
+  if (A.hasModelChunks) {
     // Only the question text is sent (no meeting content), under the workspace's embedding decision.
     const r = await embedTexts(deps, embDecision, [b.question], { orgId: ctx.orgId, meetingIds: [], purpose: 'search.ask.query_embedding' });
     if (r.model === embProvider.model) {
@@ -226,22 +240,24 @@ export async function runAsk(db: Db, ctx: WsCtx, b: AskBody): Promise<AskResult>
     }
   }
 
-  // ---- retrieval 1: ai_chunks of visible, AI-enabled, non-confidential meetings (ACL in SQL before scoring)
+  // ---- phase C (tx): retrieval — ACL + AI eligibility + scope in SQL, before any scoring
   const S = new ScopeSql(ctx, hints, explicit);
-  const chunkWhere = `c.workspace_id = $1 AND ${S.person('c.meeting_id', 'c.person_ids && $P')} AND ${S.topic('v.project_id', 'c.meeting_id', null, (names) => {
-    const tq = keywordsTsq(names);
-    return tq ? `c.tsv @@ ${S.p(tq)}::tsquery` : 'FALSE';
-  })}`;
-  const visAi = S.vis(true);
-  const kqP = S.p(kq);
-  const m1 = S.p(LOCAL_HASH_MODEL);
-  const v1 = S.p(qLocal);
-  const m2 = S.p(qModel);
-  const v2 = S.p(qVec);
-  const dot = (v: string) => `(SELECT coalesce(sum(a * b), 0) FROM unnest(c.embedding, ${v}::real[]) AS t(a, b))`;
-  const chunkRows = await rows<any>(
-    db,
-    `WITH vis AS (${visAi}),
+  const { chunkRows, items, excludedMeetings } = await ctx.tx(async (db) => {
+    // retrieval 1: ai_chunks of visible, AI-enabled, non-confidential meetings
+    const chunkWhere = `c.workspace_id = $1 AND ${S.person('c.meeting_id', 'c.person_ids && $P')} AND ${S.topic('v.project_id', 'c.meeting_id', null, (names) => {
+      const tq = keywordsTsq(names);
+      return tq ? `c.tsv @@ ${S.p(tq)}::tsquery` : 'FALSE';
+    })}`;
+    const visAi = S.vis(true);
+    const kqP = S.p(kq);
+    const m1 = S.p(LOCAL_HASH_MODEL);
+    const v1 = S.p(qLocal);
+    const m2 = S.p(qModel);
+    const v2 = S.p(qVec);
+    const dot = (v: string) => `(SELECT coalesce(sum(a * b), 0) FROM unnest(c.embedding, ${v}::real[]) AS t(a, b))`;
+    const chunkRows = await rows<any>(
+      db,
+      `WITH vis AS (${visAi}),
      cand AS (
        (SELECT c.id FROM ai_chunks c JOIN vis v ON v.id = c.meeting_id
          WHERE ${chunkWhere} AND c.tsv @@ ${kqP}::tsquery ORDER BY ts_rank_cd(c.tsv, ${kqP}::tsquery) DESC LIMIT 200)
@@ -256,24 +272,24 @@ export async function runAsk(db: Db, ctx: WsCtx, b: AskBody): Promise<AskResult>
        FROM cand JOIN ai_chunks c ON c.id = cand.id JOIN vis v ON v.id = c.meeting_id
        LEFT JOIN decisions dd ON c.entity_type = 'decision' AND dd.id = c.entity_id
       WHERE c.entity_type <> 'decision' OR dd.review_state = 'confirmed'`,
-    S.params,
-  );
+      S.params,
+    );
 
-  // ---- retrieval 2: confirmed ledger items of visible, AI-enabled, non-confidential meetings
-  const items: any[] = [];
-  const itemQuery = async (type: AskItemType, sql: (S2: ScopeSql) => string) => {
-    if (typeFilter.length && !typeFilter.includes(type) && keywords.length === 0) return;
-    const S2 = new ScopeSql(ctx, hints, explicit);
-    const r = await rows<any>(db, sql(S2), S2.params);
-    for (const x of r) items.push({ ...x, type });
-  };
-  const textLike = (S2: ScopeSql, col: string) => (names: string[]) => `${col} ILIKE ANY(${S2.p(names.map(likeEsc))}::text[])`;
-  const openOnly = hints.status;
-  // keyword matches first, then most recent (bounded candidate set per type)
-  const kwOrder = (S2: ScopeSql, col: string) => (keywords.length ? `(${col} ILIKE ANY(${S2.p(keywords.map(likeEsc))}::text[])) DESC,` : '');
-  await itemQuery('decision', (S2) => {
-    const vis = S2.vis(true);
-    return `WITH vis AS (${vis})
+    // ---- retrieval 2: confirmed ledger items of visible, AI-enabled, non-confidential meetings
+    const items: any[] = [];
+    const itemQuery = async (type: AskItemType, sql: (S2: ScopeSql) => string) => {
+      if (typeFilter.length && !typeFilter.includes(type) && keywords.length === 0) return;
+      const S2 = new ScopeSql(ctx, hints, explicit);
+      const r = await rows<any>(db, sql(S2), S2.params);
+      for (const x of r) items.push({ ...x, type });
+    };
+    const textLike = (S2: ScopeSql, col: string) => (names: string[]) => `${col} ILIKE ANY(${S2.p(names.map(likeEsc))}::text[])`;
+    const openOnly = hints.status;
+    // keyword matches first, then most recent (bounded candidate set per type)
+    const kwOrder = (S2: ScopeSql, col: string) => (keywords.length ? `(${col} ILIKE ANY(${S2.p(keywords.map(likeEsc))}::text[])) DESC,` : '');
+    await itemQuery('decision', (S2) => {
+      const vis = S2.vis(true);
+      return `WITH vis AS (${vis})
       SELECT i.id, i.meeting_id, i.text AS body, i.reason, i.topic, i.status, i.source_start_ms, i.source_end_ms, o.name AS person_name,
              v.title, v.mdate
         FROM decisions i JOIN vis v ON v.id = i.meeting_id LEFT JOIN people o ON o.id = i.owner_person_id
@@ -281,11 +297,11 @@ export async function runAsk(db: Db, ctx: WsCtx, b: AskBody): Promise<AskResult>
          AND ${S2.person('i.meeting_id', '(i.owner_person_id = ANY($P) OR i.participant_person_ids && $P)')}
          AND ${S2.topic('v.project_id', 'i.meeting_id', 'i.project_id', textLike(S2, 'i.text'))}
        ORDER BY ${kwOrder(S2, "i.text || ' ' || coalesce(i.reason, '')")} v.mdate DESC LIMIT 300`;
-  });
-  await itemQuery('commitment', (S2) => {
-    const vis = S2.vis(true);
-    const st = openOnly === 'open' ? `i.status = 'open'` : openOnly === 'done' ? `i.status = 'done'` : `i.status IN ('open','done','cancelled')`;
-    return `WITH vis AS (${vis})
+    });
+    await itemQuery('commitment', (S2) => {
+      const vis = S2.vis(true);
+      const st = openOnly === 'open' ? `i.status = 'open'` : openOnly === 'done' ? `i.status = 'done'` : `i.status IN ('open','done','cancelled')`;
+      return `WITH vis AS (${vis})
       SELECT i.id, i.meeting_id, i.description AS body, i.status, i.due_date, i.due_text, i.source_start_ms, i.source_end_ms,
              coalesce(pb.name, i.promised_by_text) AS by_name, coalesce(pt.name, i.promised_to_text) AS to_name, v.title, v.mdate
         FROM commitments i JOIN vis v ON v.id = i.meeting_id
@@ -294,23 +310,23 @@ export async function runAsk(db: Db, ctx: WsCtx, b: AskBody): Promise<AskResult>
          AND ${S2.person('i.meeting_id', '(i.promised_by_person_id = ANY($P) OR i.promised_to_person_id = ANY($P))')}
          AND ${S2.topic('v.project_id', 'i.meeting_id', 'i.project_id', textLike(S2, 'i.description'))}
        ORDER BY ${kwOrder(S2, 'i.description')} v.mdate DESC LIMIT 300`;
-  });
-  await itemQuery('question', (S2) => {
-    const vis = S2.vis(true);
-    const st = openOnly === 'open' ? `i.status = 'open'` : openOnly === 'done' ? `i.status = 'answered'` : `i.status IN ('open','answered','dropped')`;
-    return `WITH vis AS (${vis})
+    });
+    await itemQuery('question', (S2) => {
+      const vis = S2.vis(true);
+      const st = openOnly === 'open' ? `i.status = 'open'` : openOnly === 'done' ? `i.status = 'answered'` : `i.status IN ('open','answered','dropped')`;
+      return `WITH vis AS (${vis})
       SELECT i.id, i.meeting_id, i.question AS body, i.answer_text, i.status, i.source_start_ms, i.source_end_ms, o.name AS person_name, v.title, v.mdate
         FROM open_questions i JOIN vis v ON v.id = i.meeting_id LEFT JOIN people o ON o.id = i.owner_person_id
        WHERE i.workspace_id = $1 AND ${st}
          AND ${S2.person('i.meeting_id', 'i.owner_person_id = ANY($P)')}
          AND ${S2.topic('v.project_id', 'i.meeting_id', 'i.project_id', textLike(S2, 'i.question'))}
        ORDER BY ${kwOrder(S2, "i.question || ' ' || coalesce(i.answer_text, '')")} v.mdate DESC LIMIT 300`;
-  });
-  await itemQuery('action', (S2) => {
-    const vis = S2.vis(true);
-    const st =
-      openOnly === 'open' ? `i.status IN ('confirmed','in_progress')` : openOnly === 'done' ? `i.status = 'done'` : `i.status IN ('confirmed','in_progress','done','cancelled')`;
-    return `WITH vis AS (${vis})
+    });
+    await itemQuery('action', (S2) => {
+      const vis = S2.vis(true);
+      const st =
+        openOnly === 'open' ? `i.status IN ('confirmed','in_progress')` : openOnly === 'done' ? `i.status = 'done'` : `i.status IN ('confirmed','in_progress','done','cancelled')`;
+      return `WITH vis AS (${vis})
       SELECT i.id, i.meeting_id, i.description AS body, i.status, i.due_date, i.due_text, i.source_start_ms, i.source_end_ms,
              coalesce(pa2.name, i.assignee_text) AS person_name, v.title, v.mdate
         FROM actions i JOIN vis v ON v.id = i.meeting_id LEFT JOIN people pa2 ON pa2.id = i.assignee_person_id
@@ -318,9 +334,13 @@ export async function runAsk(db: Db, ctx: WsCtx, b: AskBody): Promise<AskResult>
          AND ${S2.person('i.meeting_id', 'i.assignee_person_id = ANY($P)')}
          AND ${S2.topic('v.project_id', 'i.meeting_id', 'i.project_id', textLike(S2, 'i.description'))}
        ORDER BY ${kwOrder(S2, 'i.description')} v.mdate DESC LIMIT 300`;
+    });
+
+    const excludedMeetings = await countExcluded(db, ctx, hints, explicit, kq, S.hasScope());
+    return { chunkRows, items, excludedMeetings };
   });
 
-  // ---- scoring (hybrid) & relevance gating
+  // ---- phase D (no tx): hybrid scoring & relevance gating
   const hasScope = S.hasScope();
   const lexKeys = keywords;
   const nowMs = now.getTime();
@@ -361,7 +381,8 @@ export async function runAsk(db: Db, ctx: WsCtx, b: AskBody): Promise<AskResult>
   for (const i of items) {
     const st = STATUS_JA[i.status] ?? i.status;
     let text: string;
-    if (i.type === 'decision') text = [`決定事項（確定, 状態: ${st}）: ${i.body}`, i.reason ? `理由: ${i.reason}` : '', i.person_name ? `担当: ${i.person_name}` : ''].filter(Boolean).join('\n');
+    if (i.type === 'decision')
+      text = [`決定事項（確定, 状態: ${st}）: ${i.body}`, i.reason ? `理由: ${i.reason}` : '', i.person_name ? `担当: ${i.person_name}` : ''].filter(Boolean).join('\n');
     else if (i.type === 'commitment')
       text = [
         `約束（状態: ${st}${i.due_date || i.due_text ? `, 期限: ${i.due_date ?? i.due_text}` : ''}）: ${i.body}`,
@@ -370,8 +391,12 @@ export async function runAsk(db: Db, ctx: WsCtx, b: AskBody): Promise<AskResult>
       ]
         .filter(Boolean)
         .join('\n');
-    else if (i.type === 'question') text = [`未解決の質問（状態: ${st}）: ${i.body}`, i.answer_text ? `回答: ${i.answer_text}` : '', i.person_name ? `担当: ${i.person_name}` : ''].filter(Boolean).join('\n');
-    else text = [`アクション（状態: ${st}${i.due_date || i.due_text ? `, 期限: ${i.due_date ?? i.due_text}` : ''}）: ${i.body}`, i.person_name ? `担当: ${i.person_name}` : ''].filter(Boolean).join('\n');
+    else if (i.type === 'question')
+      text = [`未解決の質問（状態: ${st}）: ${i.body}`, i.answer_text ? `回答: ${i.answer_text}` : '', i.person_name ? `担当: ${i.person_name}` : ''].filter(Boolean).join('\n');
+    else
+      text = [`アクション（状態: ${st}${i.due_date || i.due_text ? `, 期限: ${i.due_date ?? i.due_text}` : ''}）: ${i.body}`, i.person_name ? `担当: ${i.person_name}` : '']
+        .filter(Boolean)
+        .join('\n');
     const raw = [i.body, i.reason, i.answer_text, i.topic].filter(Boolean).join('\n');
     cands.push({
       key: `${i.type}:${i.id}`,
@@ -419,16 +444,23 @@ export async function runAsk(db: Db, ctx: WsCtx, b: AskBody): Promise<AskResult>
     picked.push(c);
   }
 
-  const excludedMeetings = await countExcluded(db, ctx, hints, explicit, kq, hasScope);
   const decision = decideWorkspaceAi(settings, deps.config);
   const base = { scope: scopeInfo, excludedMeetings };
 
   if (!picked.length) {
-    await audit(db, { orgId: ctx.orgId, workspaceId: ctx.workspaceId, userId: ctx.userId, action: 'ai.ask', meta: { provider: 'none', contexts: 0, insufficient: true, excludedMeetings } });
+    await ctx.tx((db) =>
+      audit(db, {
+        orgId: ctx.orgId,
+        workspaceId: ctx.workspaceId,
+        userId: ctx.userId,
+        action: 'ai.ask',
+        meta: { provider: 'none', contexts: 0, insufficient: true, excludedMeetings },
+      }),
+    );
     return { answer: unknown, insufficient: true, citations: [], provider: 'none', aiGenerated: false, contextCount: 0, ...base };
   }
 
-  // ---- provider call: only the picked contexts (opaque refs, no DB ids) leave this function
+  // ---- phase E (no tx): provider call — only the picked contexts (opaque refs, no DB ids) leave this function
   const refs = new Map<string, Candidate>();
   const contexts: AnswerContext[] = picked.map((c, idx) => {
     const ref = `c${idx + 1}`;
@@ -454,21 +486,39 @@ export async function runAsk(db: Db, ctx: WsCtx, b: AskBody): Promise<AskResult>
           meetingDate: c.meetingDate ? new Date(c.meetingDate).toISOString() : null,
           startMs: c.startMs,
           endMs: c.endMs,
-          snippet: makeSnippet(c.raw, [...lexKeys, ...hints.topicNames].map((x) => x.normalize('NFKC').toLowerCase())).plain,
+          snippet: makeSnippet(
+            c.raw,
+            [...lexKeys, ...hints.topicNames].map((x) => x.normalize('NFKC').toLowerCase()),
+          ).plain,
         };
       });
   const answer = insufficient ? unknown : out.answer.replace(/\[(c\d+)\]/g, (m, r) => (refs.has(r) ? m : '')).slice(0, 4000);
-  await audit(db, {
-    orgId: ctx.orgId,
-    workspaceId: ctx.workspaceId,
-    userId: ctx.userId,
-    action: 'ai.ask',
-    meta: { provider: decision.provider, isLocal: decision.isLocal, contexts: contexts.length, meetings: meetingIds.length, cited: citations.length, insufficient, excludedMeetings },
-  });
+  await ctx.tx((db) =>
+    audit(db, {
+      orgId: ctx.orgId,
+      workspaceId: ctx.workspaceId,
+      userId: ctx.userId,
+      action: 'ai.ask',
+      meta: {
+        provider: decision.provider,
+        isLocal: decision.isLocal,
+        contexts: contexts.length,
+        meetings: meetingIds.length,
+        cited: citations.length,
+        insufficient,
+        excludedMeetings,
+      },
+    }),
+  );
   return { answer, insufficient, citations, provider: decision.provider, aiGenerated: true, contextCount: contexts.length, ...base };
 }
 
-async function callProvider(ctx: WsCtx, decision: PolicyDecision, input: { question: string; contexts: AnswerContext[]; locale: 'ja' | 'en' }, meetingIds: string[]): Promise<AnswerOutput> {
+async function callProvider(
+  ctx: WsCtx,
+  decision: PolicyDecision,
+  input: { question: string; contexts: AnswerContext[]; locale: 'ja' | 'en' },
+  meetingIds: string[],
+): Promise<AnswerOutput> {
   let provider;
   try {
     provider = ctx.deps.providers.ai(decision.provider);
