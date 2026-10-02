@@ -481,9 +481,20 @@ export async function persistExtraction(
   return result;
 }
 
+/** Bounds of the contradiction candidate sets (each read through a partial index; spec §40: 500k decisions per workspace). */
+export const CONTRADICTION_PER_TOPIC = 200;
+export const CONTRADICTION_RECENT = 300;
+/** At most this many contradiction candidates per new decision (newest conflicting decisions first) and per run. */
+export const CONTRADICTION_MAX_PER_DECISION = 3;
+export const CONTRADICTION_MAX_PER_RUN = 100;
+
 /**
  * Creates contradiction candidates between `newDecisions` and confirmed, active decisions of the same project or series
  * (workspace-wide when the meeting has neither). Exported for manual decision creation.
+ * Bounded: per topic_key the newest CONTRADICTION_PER_TOPIC decisions in scope, plus the newest CONTRADICTION_RECENT
+ * decisions in scope (for similarity matches without a topic) — never a scan of the whole ledger. Each new decision is
+ * compared with its own topic's decisions and the recent set only, and yields at most CONTRADICTION_MAX_PER_DECISION
+ * candidates (CONTRADICTION_MAX_PER_RUN per extraction).
  */
 export async function detectContradictions(
   db: Db,
@@ -493,31 +504,55 @@ export async function detectContradictions(
   newDecisions: any[],
 ): Promise<number> {
   if (!newDecisions.length) return 0;
-  const params: unknown[] = [workspaceId, newDecisions.map((d) => d.id)];
-  const scope: string[] = [];
-  if (meeting.project_id) {
-    params.push(meeting.project_id);
-    scope.push(`d.project_id = $${params.length}`);
-  }
-  if (meeting.series_id) {
-    params.push(meeting.series_id);
-    scope.push(`d.series_id = $${params.length}`);
-  }
-  const existing = await rows<any>(
+  const base = `d.workspace_id = $1 AND d.review_state = 'confirmed' AND d.status = 'active' AND NOT (d.id = ANY($2))
+        AND (d.meeting_id IS NULL OR EXISTS (SELECT 1 FROM meetings dm WHERE dm.id = d.meeting_id AND dm.deleted_at IS NULL))`;
+  const cols = 'd.id, d.text, d.topic, d.topic_key';
+  // scope conditions with their own parameters ($3.. after workspace and new ids)
+  const scopeConds: { sql: string; val: string }[] = [];
+  if (meeting.project_id) scopeConds.push({ sql: 'd.project_id', val: meeting.project_id });
+  if (meeting.series_id) scopeConds.push({ sql: 'd.series_id', val: meeting.series_id });
+  const scopeParams = scopeConds.map((c) => c.val);
+  const scopeSql = scopeConds.length ? `(${scopeConds.map((c, i) => `${c.sql} = $${i + 3}`).join(' OR ')})` : 'TRUE';
+  const head: unknown[] = [workspaceId, newDecisions.map((d) => d.id)];
+  const keys = [...new Set(newDecisions.map((d) => d.topic_key ?? topicKeyOf(d.topic)).filter((k): k is string => !!k))].slice(0, 100);
+  // (a) same topic, newest first (decisions_active_topic)
+  const byTopic = keys.length
+    ? await rows<any>(
+        db,
+        `SELECT t.* FROM unnest($${scopeParams.length + 3}::text[]) k(key) CROSS JOIN LATERAL (
+           SELECT ${cols} FROM decisions d WHERE ${base} AND d.topic_key = k.key AND ${scopeSql}
+            ORDER BY d.created_at DESC LIMIT ${CONTRADICTION_PER_TOPIC}) t`,
+        [...head, ...scopeParams, keys],
+      )
+    : [];
+  // (b) newest in scope (decisions_active_project / _series / _recent), for similar decisions without a shared topic
+  const recentSql = (cond: string) => `(SELECT ${cols} FROM decisions d WHERE ${base} AND ${cond} ORDER BY d.created_at DESC LIMIT ${CONTRADICTION_RECENT})`;
+  const recent = await rows<any>(
     db,
-    `SELECT d.id, d.text, d.topic, d.topic_key FROM decisions d
-      WHERE d.workspace_id = $1 AND d.review_state = 'confirmed' AND d.status = 'active' AND NOT (d.id = ANY($2))
-        AND (d.meeting_id IS NULL OR EXISTS (SELECT 1 FROM meetings dm WHERE dm.id = d.meeting_id AND dm.deleted_at IS NULL))
-        AND ${scope.length ? `(${scope.join(' OR ')})` : 'TRUE'}
-      ORDER BY d.created_at DESC LIMIT 1000`,
-    params,
+    scopeConds.length ? scopeConds.map((c, i) => recentSql(`${c.sql} = $${i + 3}`)).join(' UNION ') : recentSql('TRUE'),
+    [...head, ...scopeParams],
   );
+  const topicRows = new Map<string, any[]>();
+  for (const d of byTopic) {
+    const list = topicRows.get(d.topic_key) ?? [];
+    list.push(d);
+    topicRows.set(d.topic_key, list);
+  }
+  const memo = { tokens: new Map<string, Set<string>>(), values: new Map<string, Set<string>>() };
   let n = 0;
   for (const nd of newDecisions) {
-    for (const ed of existing) {
+    if (n >= CONTRADICTION_MAX_PER_RUN) break;
+    const key = nd.topic_key ?? topicKeyOf(nd.topic);
+    // newest same-topic decisions first, then newest decisions in scope; each existing decision once
+    const seen = new Set<string>();
+    let found = 0;
+    for (const ed of [...(key ? (topicRows.get(key) ?? []) : []), ...recent]) {
+      if (seen.has(ed.id)) continue;
+      seen.add(ed.id);
       const reason = contradictionReason(
-        { text: nd.text, topic: nd.topic, topicKey: nd.topic_key ?? topicKeyOf(nd.topic) },
+        { text: nd.text, topic: nd.topic, topicKey: key },
         { text: ed.text, topic: ed.topic, topicKey: ed.topic_key ?? topicKeyOf(ed.topic) },
+        memo,
       );
       if (!reason) continue;
       const c = await one<{ id: string }>(
@@ -530,6 +565,8 @@ export async function detectContradictions(
         n++;
         await ledgerEvent(db, { orgId, workspaceId, type: 'contradiction', id: c.id, event: 'detected', byUserId: null, diff: { existing: ed.id, new: nd.id } });
       }
+      // A human needs the latest conflicting decision(s), not every historical one.
+      if (++found >= CONTRADICTION_MAX_PER_DECISION || n >= CONTRADICTION_MAX_PER_RUN) break;
     }
   }
   return n;

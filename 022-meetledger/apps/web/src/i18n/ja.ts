@@ -1147,4 +1147,11 @@ export const ja = {
   'jobStatus.dead': '失敗（再試行なし）',
   'jobStatus.pending': '待機中',
   'jobStatus.cancelled': '中止',
+  'brief.otherCommitments': 'そのほかの未完了の約束',
+  'transcript.reextractTitle': '話者の対応づけを候補に反映できます',
+  'transcript.reextractHint': 'まだ確認していない候補を、新しい話者の対応づけで抽出し直します。確認・編集済みの項目はそのまま残ります。',
+  'transcript.reextract': '候補を抽出し直す',
+  'transcript.reextractQueued': '候補の抽出を開始しました。確認待ち（Review）に表示されます',
+  'followup.warn.candidatesExcluded': '未確認の候補 {n} 件は含めていません（確認待ちで承認すると反映できます）',
+  'followup.warn.noConfirmedItems': '確定した決まったこと・やること・約束がまだありません',
 } as const;

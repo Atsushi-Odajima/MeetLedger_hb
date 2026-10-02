@@ -33,7 +33,7 @@ API では `source: { meetingId, meetingTitle, meetingDate, segmentIds, startMs,
 
 | Method | Path | 説明 |
 |---|---|---|
-| GET | `/api/w/:ws/decisions?view=current\|all\|candidates\|superseded&projectId&seriesId&personId&meetingId&topic&limit&cursor` | `current`=有効な決定（既定）、`all`=却下以外、`candidates`、`superseded` |
+| GET | `/api/w/:ws/decisions?view=current\|all\|candidates\|superseded&projectId&seriesId&personId&meetingId&topic&limit&cursor` | `current`=有効な決定（既定）、`all`=却下以外、`candidates`、`superseded`。`{items, nextCursor, total}`（ページングは [COMMITMENT_LEDGER.md](COMMITMENT_LEDGER.md) 参照） |
 | POST | `/api/w/:ws/decisions` | 手動作成（即 confirmed）。`{text, topic?, reason?, meetingId?, projectId?, seriesId?, ownerPersonId?, decidedAt?, participantPersonIds?, segmentIds?, supersedesDecisionId?}` |
 | GET/PATCH | `/api/w/:ws/decisions/:id` | PATCH: `text/topic/reason/ownerPersonId/projectId/seriesId/participantPersonIds`、`status: 'revoked'\|'active'`（変更は ledger_events に差分で記録） |
 | GET | `/api/w/:ws/decisions/:id/history` | `{chain: [古い→新しい], current, events}`（Supersede チェーン＋全イベント） |
@@ -59,6 +59,9 @@ AI 抽出（および手動作成）で新しい決定ができると、**同じ
 3. 値が同じなら言い換えとみなし、矛盾にしません
 
 候補は `contradiction_candidates(status='open')` として保存され、Review Inbox と `/contradictions` に表示されます。**自動で置き換えることはありません。**
+
+規模（1 Workspace に 50万件の決定）でも検出は有界です: 比較対象は「同じトピックの最新200件（範囲内）」と「範囲内の最新300件」だけで、
+新しい決定1件につき**最新の競合3件まで**、1回の抽出で最大100件の矛盾候補を作ります（人が見るべきなのは最新の有効な決定との食い違いのため）。
 
 | resolution | 結果 |
 |---|---|

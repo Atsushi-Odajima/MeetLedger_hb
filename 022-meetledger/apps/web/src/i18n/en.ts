@@ -1149,4 +1149,11 @@ export const en: Record<keyof typeof ja, string> = {
   'jobStatus.dead': 'Failed (no more retries)',
   'jobStatus.pending': 'Pending',
   'jobStatus.cancelled': 'Cancelled',
+  'brief.otherCommitments': 'Other open commitments',
+  'transcript.reextractTitle': 'Apply speaker names to candidates',
+  'transcript.reextractHint': 'Re-extracts the candidates you have not reviewed yet using the new speaker mapping. Items you already reviewed or edited are kept.',
+  'transcript.reextract': 'Re-extract candidates',
+  'transcript.reextractQueued': 'Extraction started. New candidates will appear in Review.',
+  'followup.warn.candidatesExcluded': '{n} unreviewed candidates are not included (approve them in Review to include them)',
+  'followup.warn.noConfirmedItems': 'There are no confirmed decisions, actions or commitments yet',
 };

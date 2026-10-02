@@ -92,7 +92,16 @@ export function Timeline({ events }: { events: TimelineEvent[] }) {
               {type === 'meeting' && meetingId ? <Link to={p(`/meetings/${meetingId}`)}>{eventText(e, t, tm)}</Link> : <span className={type === 'note' ? 'pre' : undefined}>{eventText(e, t, tm)}</span>}
               {e.status && type !== 'meeting' && type !== 'note' && <span className="muted"> · {tm(`${type}Status.${e.status}`, e.status)}</span>}
               {e.author && <span className="muted"> · {e.author}</span>}
-              {type !== 'meeting' && meetingId && <SourceLink source={toSourceRef({ meetingId, meetingTitle: e.source?.meetingTitle ?? e.meetingTitle ?? null, meetingDate: e.source?.meetingDate ?? null, startMs: e.startMs ?? null })} compact />}
+              {type !== 'meeting' && meetingId && (
+                <SourceLink
+                  source={toSourceRef({
+                    meetingId,
+                    meetingTitle: e.source?.meetingTitle ?? e.meeting?.title ?? e.meetingTitle ?? null,
+                    meetingDate: e.source?.meetingDate ?? null,
+                    startMs: e.source?.startMs ?? e.startMs ?? null,
+                  })}
+                />
+              )}
             </div>
           </li>
         );

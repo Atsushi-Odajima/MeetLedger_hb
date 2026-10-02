@@ -59,16 +59,27 @@ export interface DecisionLike {
 
 const fmt = (s: Set<string>) => [...s].join('・');
 
+export interface ContradictionMemo {
+  tokens: Map<string, Set<string>>;
+  values: Map<string, Set<string>>;
+}
+const memoized = (m: Map<string, Set<string>> | undefined, text: string, f: (t: string) => Set<string>) => {
+  if (!m) return f(text);
+  let v = m.get(text);
+  if (!v) m.set(text, (v = f(text)));
+  return v;
+};
+
 /** Returns a human-readable reason when `next` likely changes/contradicts `existing`, otherwise null. */
-export function contradictionReason(next: DecisionLike, existing: DecisionLike): string | null {
+export function contradictionReason(next: DecisionLike, existing: DecisionLike, memo?: ContradictionMemo): string | null {
   if (norm(next.text) === norm(existing.text)) return null;
   const sameTopic = !!next.topicKey && next.topicKey === existing.topicKey;
-  const sim = jaccard(tokenSet(next.text), tokenSet(existing.text));
+  const sim = jaccard(memoized(memo?.tokens, next.text, tokenSet), memoized(memo?.tokens, existing.text, tokenSet));
   if (!sameTopic && sim < 0.3) return null;
   const label = existing.topic ?? next.topic;
   const head = label ? `「${label}」について既存の決定と異なる可能性があります` : '類似した既存の決定と異なる可能性があります';
-  const va = valueSet(next.text);
-  const vb = valueSet(existing.text);
+  const va = memoized(memo?.values, next.text, valueSet);
+  const vb = memoized(memo?.values, existing.text, valueSet);
   if (va.size && vb.size) {
     if ([...va].every((v) => vb.has(v)) && [...vb].every((v) => va.has(v))) return null;
     return `${head}（既存: ${fmt(vb)} / 新: ${fmt(va)}）`;

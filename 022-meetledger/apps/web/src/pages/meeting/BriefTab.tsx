@@ -38,6 +38,7 @@ function Block({ titleKey, n, children }: { titleKey: MsgKey; n: number; childre
   if (!n) return null;
   return (
     <Card
+      id={titleKey.replace(/\./g, '-')}
       title={
         <>
           {t(titleKey)} <Badge>{n}</Badge>
@@ -74,7 +75,8 @@ export function BriefTab() {
         {(b) => {
           const c = b.commitments;
           const mine = Array.isArray(c) ? c.filter((x) => x.direction === 'mine') : (c?.mine ?? []);
-          const theirs = Array.isArray(c) ? c.filter((x) => x.direction !== 'mine') : [...(c?.theirs ?? []), ...(c?.others ?? [])];
+          const theirs = Array.isArray(c) ? c.filter((x) => x.direction === 'theirs') : (c?.theirs ?? []);
+          const otherCommitments = Array.isArray(c) ? c.filter((x) => x.direction !== 'mine' && x.direction !== 'theirs') : (c?.others ?? []);
           const decisions = b.currentDecisions ?? [];
           const changes = b.recentChanges ?? [];
           const others = (b.participants ?? []).filter((x) => !x.isMe);
@@ -120,6 +122,13 @@ export function BriefTab() {
                   ))}
                 </ul>
                 {more(b.more?.commitments)}
+              </Block>
+              <Block titleKey="brief.otherCommitments" n={otherCommitments.length}>
+                <ul className="items">
+                  {otherCommitments.map((x) => (
+                    <CommitmentItem key={x.id} c={x} />
+                  ))}
+                </ul>
               </Block>
               <Block titleKey="brief.openQuestions" n={(b.openQuestions ?? []).length}>
                 <ul className="items">

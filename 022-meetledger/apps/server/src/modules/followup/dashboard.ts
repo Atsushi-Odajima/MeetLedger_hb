@@ -1,19 +1,40 @@
 // Personal dashboard: Today / Upcoming / Needs Review / My Actions / My Commitments / Waiting on Others / Overdue /
-// Decisions Changed (7d) / Open Questions. Everything goes through meetingVisibleSql / itemVisibleSql.
+// Decisions Changed (7d) / Open Questions. Every ledger query applies the meeting ACL (meetingVisibleSql on the source
+// meeting = itemVisibleSql semantics); meetings use meetingVisibleSql.
+//
+// Bounded at spec §40 scale: each section returns the top DASH_LIMIT items + a count (capped at COUNT_CAP → "1000+").
+// "Mine" lists walk the per-user indexes (021_ledger_perf_indexes); involvement-based sections (needs review, waiting on
+// others, open questions) are driven by the meetings the user created/attended in the last DASH_WINDOW_DAYS days.
 import type { FastifyInstance } from 'fastify';
 import { dateInTz } from '@meetledger/shared';
 import type { Deps, WsCtx } from '../../context';
 import { rows, type Db } from '../../db/pool';
 import { parse, wsParams } from '../../lib/http';
 import { meetingVisibleSql, workspaceCtx } from '../../rbac/access';
-import { addDays, loadActions, loadChanges, loadCommitments, loadQuestions, meetingBrief, meetingTimeSql, newScope, safeTz, zonedTime } from './util';
+import {
+  addDays,
+  countByStatus,
+  countChanges,
+  countCommitmentsByDirection,
+  countItems,
+  loadActions,
+  loadChanges,
+  loadCommitments,
+  loadQuestions,
+  meetingBrief,
+  meetingTimeSql,
+  myPersonIds,
+  newScope,
+  safeTz,
+  zonedTime,
+  type Scope,
+} from './util';
 
-const MY_PERSONS = `(SELECT mp.id FROM people mp WHERE mp.workspace_id = $1 AND mp.user_id = $2)`;
-const MY_ACTION = `coalesce(({a}.assignee_user_id = $2 OR {a}.assignee_person_id IN ${MY_PERSONS}), false)`;
-const MY_COMMITMENT = `coalesce(({a}.promised_by_user_id = $2 OR {a}.promised_by_person_id IN ${MY_PERSONS}), false)`;
-/** The source meeting was created by me or I am a participant. */
-const INVOLVED = `EXISTS (SELECT 1 FROM meetings im WHERE im.id = {a}.meeting_id AND (im.created_by = $2
-  OR EXISTS (SELECT 1 FROM participants ip LEFT JOIN people ipe ON ipe.id = ip.person_id WHERE ip.meeting_id = im.id AND (ip.user_id = $2 OR ipe.user_id = $2))))`;
+export const DASH_LIMIT = 10;
+export const DASH_WINDOW_DAYS = 90;
+export const COUNT_CAP = 1000;
+/** Upper bound of involved meetings considered (newest first). */
+const INVOLVED_MAX = 2000;
 
 export async function buildDashboard(db: Db, ctx: WsCtx) {
   const now = ctx.deps.clock.now();
@@ -22,90 +43,143 @@ export async function buildDashboard(db: Db, ctx: WsCtx) {
   const dayStart = zonedTime(today, 0, tz);
   const dayEnd = zonedTime(addDays(today, 1), 0, tz);
   const weekEnd = zonedTime(addDays(today, 8), 0, tz);
+  const since = new Date(now.getTime() - DASH_WINDOW_DAYS * 86400_000);
   const ws = ctx.workspaceId;
   const me = ctx.userId;
+  const persons = await myPersonIds(db, ws, me);
+  const N = DASH_LIMIT;
 
-  const meetingsBetween = (from: Date, to: Date, limit: number) =>
-    rows(
-      db,
-      `SELECT m.* FROM meetings m WHERE m.workspace_id = $1 AND ${meetingVisibleSql('m', '$2')}
-         AND m.scheduled_start >= $3 AND m.scheduled_start < $4 AND m.status <> 'archived'
-       ORDER BY m.scheduled_start ASC LIMIT ${limit}`,
-      [ws, me, from, to],
-    );
-  const todayMeetings = (await meetingsBetween(dayStart, dayEnd, 20)).map(meetingBrief);
-  const upcoming = (await meetingsBetween(dayEnd, weekEnd, 10)).map(meetingBrief);
-
-  const review = await rows(
-    db,
-    `SELECT m.*, c.n AS candidates FROM meetings m
-       CROSS JOIN LATERAL (SELECT ((SELECT count(*) FROM decisions d WHERE d.meeting_id = m.id AND d.review_state = 'candidate')
-                                 + (SELECT count(*) FROM actions a WHERE a.meeting_id = m.id AND a.status = 'candidate')
-                                 + (SELECT count(*) FROM commitments x WHERE x.meeting_id = m.id AND x.status = 'candidate')
-                                 + (SELECT count(*) FROM open_questions q WHERE q.meeting_id = m.id AND q.status = 'candidate'))::int AS n) c
-      WHERE m.workspace_id = $1 AND ${meetingVisibleSql('m', '$2')}
-        AND (m.created_by = $2 OR EXISTS (SELECT 1 FROM participants ip LEFT JOIN people ipe ON ipe.id = ip.person_id WHERE ip.meeting_id = m.id AND (ip.user_id = $2 OR ipe.user_id = $2)))
-        AND (m.status = 'needs_review' OR c.n > 0)
-      ORDER BY ${meetingTimeSql('m')} DESC LIMIT 20`,
-    [ws, me],
-  );
-  const needsReview = review.map((m) => ({ ...meetingBrief(m), candidates: m.candidates }));
-
-  const sMine = newScope(ws, me);
-  sMine.ands.push(MY_ACTION);
-  const myActions = await loadActions(db, sMine, { statuses: ['confirmed', 'in_progress'], today, limit: 50 });
-
-  const sMyC = newScope(ws, me);
-  sMyC.ands.push(MY_COMMITMENT);
-  const myCommitments = await loadCommitments(db, sMyC, { statuses: ['open'], today, limit: 50 });
-
-  const sTheirs = newScope(ws, me);
-  sTheirs.ands.push(`NOT ${MY_COMMITMENT}`);
-  sTheirs.ands.push(`({a}.promised_to_user_id = $2 OR {a}.promised_to_person_id IN ${MY_PERSONS} OR ${INVOLVED})`);
-  const waitingCommitments = (await loadCommitments(db, sTheirs, { statuses: ['open'], today, limit: 50 })).filter((c) => c.direction === 'theirs');
-
-  const sOthers = newScope(ws, me);
-  sOthers.ands.push(`NOT ${MY_ACTION}`, `({a}.assignee_user_id IS NOT NULL OR {a}.assignee_person_id IS NOT NULL OR {a}.assignee_text IS NOT NULL)`, INVOLVED);
-  const waitingActions = await loadActions(db, sOthers, { statuses: ['confirmed', 'in_progress'], today, limit: 30 });
-
-  const sOverA = newScope(ws, me);
-  sOverA.ands.push(MY_ACTION, `{a}.due_date < ${sOverA.p(today)}::date`);
-  const sOverC = newScope(ws, me);
-  sOverC.ands.push(MY_COMMITMENT, `{a}.due_date < ${sOverC.p(today)}::date`);
-  const overdue = {
-    actions: await loadActions(db, sOverA, { statuses: ['confirmed', 'in_progress'], today, limit: 100 }),
-    commitments: await loadCommitments(db, sOverC, { statuses: ['open'], today, limit: 100 }),
+  // ---- meetings (index meetings_ws_start)
+  const meetingsBetween = async (from: Date, to: Date) => {
+    const where = `m.workspace_id = $1 AND ${meetingVisibleSql('m', '$2')} AND m.scheduled_start >= $3 AND m.scheduled_start < $4 AND m.status <> 'archived'`;
+    const list = await rows(db, `SELECT m.* FROM meetings m WHERE ${where} ORDER BY m.scheduled_start ASC, m.id LIMIT ${N * 2}`, [ws, me, from, to]);
+    const cnt = list.length < N * 2 ? list.length : (await rows<{ n: number }>(db, `SELECT count(*)::int AS n FROM meetings m WHERE ${where}`, [ws, me, from, to]))[0].n;
+    return { items: list.map(meetingBrief), count: cnt };
   };
+  const todayM = await meetingsBetween(dayStart, dayEnd);
+  const upcomingM = await meetingsBetween(dayEnd, weekEnd);
 
+  // ---- meetings I created or attended in the window (newest first, bounded)
+  const involvedSql = (timeCond: string) => `
+    SELECT m.id, m.status, ${meetingTimeSql('m')} AS t FROM meetings m
+     WHERE m.workspace_id = $1 AND ${meetingVisibleSql('m', '$2')} AND ${timeCond}
+       AND (m.created_by = $2 OR EXISTS (SELECT 1 FROM participants ip WHERE ip.meeting_id = m.id AND (ip.user_id = $2 OR ip.person_id = ANY($5::uuid[]))))`;
+  const involved = await rows<{ id: string; status: string; t: Date }>(
+    db,
+    `SELECT * FROM (${involvedSql('m.scheduled_start >= $3 AND m.scheduled_start <= $4')}
+                    UNION ALL ${involvedSql('m.scheduled_start IS NULL AND m.created_at >= $3 AND m.created_at <= $4')}) x
+      ORDER BY t DESC LIMIT ${INVOLVED_MAX}`,
+    [ws, me, since, now, persons],
+  );
+  const involvedIds = involved.map((m) => m.id);
+
+  // ---- needs review: candidate counts per involved meeting (4 grouped index lookups)
+  const cand = new Map<string, number>();
+  if (involvedIds.length) {
+    for (const [table, cond] of [
+      ['decisions', "review_state = 'candidate'"],
+      ['actions', "status = 'candidate'"],
+      ['commitments', "status = 'candidate'"],
+      ['open_questions', "status = 'candidate'"],
+    ] as const) {
+      for (const r of await rows<{ meeting_id: string; n: number }>(
+        db,
+        `SELECT meeting_id, count(*)::int AS n FROM ${table} WHERE meeting_id = ANY($1::uuid[]) AND ${cond} GROUP BY meeting_id`,
+        [involvedIds],
+      ))
+        cand.set(r.meeting_id, (cand.get(r.meeting_id) ?? 0) + r.n);
+    }
+  }
+  const reviewIds = involved.filter((m) => m.status === 'needs_review' || (cand.get(m.id) ?? 0) > 0).map((m) => m.id);
+  const reviewRows = reviewIds.length
+    ? await rows(db, `SELECT m.* FROM meetings m WHERE m.id = ANY($1::uuid[]) ORDER BY ${meetingTimeSql('m')} DESC, m.id LIMIT ${N}`, [reviewIds.slice(0, N * 2)])
+    : [];
+  const needsReview = reviewRows.map((m) => ({ ...meetingBrief(m), candidates: cand.get(m.id) ?? 0 }));
+
+  // ---- mine (per-user indexes; overdue split out so the lists stay actionable)
+  const mine = (userCol: string, personCol: string) => (s: Scope) =>
+    persons.length ? `({a}.${userCol} = $2 OR {a}.${personCol} = ANY(${s.p(persons)}::uuid[]))` : `{a}.${userCol} = $2`;
+  const mineAction = mine('assignee_user_id', 'assignee_person_id');
+  const mineCommit = mine('promised_by_user_id', 'promised_by_person_id');
+  const scoped = (pred: (s: Scope) => string, due: 'open' | 'overdue') => {
+    const s = newScope(ws, me);
+    s.ands.push(pred(s));
+    const t = s.p(today);
+    s.ands.push(due === 'overdue' ? `{a}.due_date < ${t}::date` : `({a}.due_date >= ${t}::date OR {a}.due_date IS NULL)`);
+    return s;
+  };
+  const OPEN = ['confirmed', 'in_progress'];
+  const sMyA = scoped(mineAction, 'open');
+  const sOverA = scoped(mineAction, 'overdue');
+  const sMyC = scoped(mineCommit, 'open');
+  const sOverC = scoped(mineCommit, 'overdue');
+  const myActions = await loadActions(db, sMyA, { statuses: OPEN, today, limit: N, order: 'due_asc', indexOrder: true });
+  const overdueActions = await loadActions(db, sOverA, { statuses: OPEN, today, limit: N, order: 'due_desc', indexOrder: true });
+  const myCommitments = await loadCommitments(db, sMyC, { statuses: ['open'], today, limit: N, order: 'due_asc', indexOrder: true });
+  const overdueCommitments = await loadCommitments(db, sOverC, { statuses: ['open'], today, limit: N, order: 'due_desc', indexOrder: true });
+  const cnt = async (shown: number, count: () => Promise<number>) => (shown < N ? shown : count());
+
+  // ---- waiting on others: items of my recent meetings owed by others
+  const waitScope = () => {
+    const s = newScope(ws, me);
+    s.ands.push(`{a}.meeting_id = ANY(${s.p(involvedIds)}::uuid[])`);
+    return s;
+  };
+  const sWaitC = waitScope();
+  const sWaitA = waitScope();
+  sWaitA.ands.push(
+    `NOT coalesce(${mineAction(sWaitA)}, false)`,
+    `({a}.assignee_user_id IS NOT NULL OR {a}.assignee_person_id IS NOT NULL OR {a}.assignee_text IS NOT NULL)`,
+  );
+  const waitingCommitments = involvedIds.length ? await loadCommitments(db, sWaitC, { statuses: ['open'], today, limit: N, direction: 'theirs' }) : [];
+  const waitingActions = involvedIds.length ? await loadActions(db, sWaitA, { statuses: OPEN, today, limit: N }) : [];
+
+  // ---- decisions changed (7d, workspace-wide; index decisions_superseded_recent)
   const sAll = newScope(ws, me);
-  const decisionsChanged = await loadChanges(db, sAll, { sinceIso: new Date(now.getTime() - 7 * 86400_000).toISOString(), limit: 20 });
+  const since7 = new Date(now.getTime() - 7 * 86400_000).toISOString();
+  const decisionsChanged = await loadChanges(db, sAll, { sinceIso: since7, limit: N, indexOrder: true });
 
+  // ---- open questions: of my recent meetings, or owned by me
   const sQ = newScope(ws, me);
-  sQ.ands.push(`({a}.owner_person_id IN ${MY_PERSONS} OR ${INVOLVED})`);
-  const openQuestions = await loadQuestions(db, sQ, { statuses: ['open'], limit: 20 });
+  if (involvedIds.length) sQ.ors.push(`{a}.meeting_id = ANY(${sQ.p(involvedIds)}::uuid[])`);
+  if (persons.length) sQ.ors.push(`{a}.owner_person_id = ANY(${sQ.p(persons)}::uuid[])`);
+  const openQuestions = sQ.ors.length ? await loadQuestions(db, sQ, { statuses: ['open'], limit: N }) : [];
+
+  const counts = {
+    today: todayM.count,
+    upcoming: upcomingM.count,
+    needsReview: reviewIds.length,
+    myActions: await cnt(myActions.length, () => countByStatus(db, 'action', sMyA, OPEN, COUNT_CAP)),
+    myCommitments: await cnt(myCommitments.length, () => countByStatus(db, 'commitment', sMyC, ['open'], COUNT_CAP)),
+    overdueActions: await cnt(overdueActions.length, () => countByStatus(db, 'action', sOverA, OPEN, COUNT_CAP)),
+    overdueCommitments: await cnt(overdueCommitments.length, () => countByStatus(db, 'commitment', sOverC, ['open'], COUNT_CAP)),
+    waitingCommitments: await cnt(waitingCommitments.length, async () => (await countCommitmentsByDirection(db, sWaitC, ['open'])).theirs),
+    waitingActions: await cnt(waitingActions.length, () => countByStatus(db, 'action', sWaitA, OPEN, COUNT_CAP)),
+    decisionsChanged: await cnt(decisionsChanged.length, () => countChanges(db, sAll, since7, COUNT_CAP)),
+    openQuestions: await cnt(openQuestions.length, () => countItems(db, 'question', sQ, (a) => `${a}.status = 'open'`, COUNT_CAP)),
+  };
 
   return {
     generatedAt: now.toISOString(),
     timezone: tz,
-    today: todayMeetings,
-    upcoming,
+    today: todayM.items.slice(0, N * 2),
+    upcoming: upcomingM.items.slice(0, N),
     needsReview,
     myActions,
     myCommitments,
     waitingOnOthers: { commitments: waitingCommitments, actions: waitingActions },
-    overdue,
+    overdue: { actions: overdueActions, commitments: overdueCommitments },
     decisionsChanged,
     openQuestions,
     counts: {
-      today: todayMeetings.length,
-      needsReview: needsReview.length,
-      myActions: myActions.length,
-      myCommitments: myCommitments.length,
-      waitingOnOthers: waitingCommitments.length + waitingActions.length,
-      overdue: overdue.actions.length + overdue.commitments.length,
-      decisionsChanged: decisionsChanged.length,
-      openQuestions: openQuestions.length,
+      ...counts,
+      waitingOnOthers: counts.waitingCommitments + counts.waitingActions,
+      overdue: counts.overdueActions + counts.overdueCommitments,
     },
+    /** A count equal to countCap means "countCap or more". */
+    countCap: COUNT_CAP,
+    limit: N,
+    windowDays: DASH_WINDOW_DAYS,
   };
 }
 

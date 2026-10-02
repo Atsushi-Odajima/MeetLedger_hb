@@ -6,6 +6,9 @@ import { one, rows, type Db } from '../../db/pool';
 import { iso, parse, wsIdParams } from '../../lib/http';
 import { loadMeeting, meetingVisibleSql, workspaceCtx } from '../../rbac/access';
 import {
+  countByStatus,
+  countCommitmentsByDirection,
+  countCurrentDecisions,
   loadActions,
   loadChanges,
   loadCommitments,
@@ -48,25 +51,27 @@ export async function loadParticipants(db: Db, meetingId: string, userId: string
   }));
 }
 
-/** Previous meeting: same series first, else the latest visible meeting sharing a participant (other than me) or the project. */
+/**
+ * Previous meeting: same series first, else the latest visible meeting sharing a participant (other than me) or the project.
+ * Three small index-backed lookups (series / participants / project) instead of one OR over every meeting.
+ */
 export async function findPreviousMeeting(db: Db, ctx: WsCtx, m: any, otherPersonIds: string[]) {
   const t = m.scheduled_start ?? m.started_at ?? m.created_at;
-  return one<any>(
-    db,
-    `SELECT pm.*,
-            CASE WHEN $4::uuid IS NOT NULL AND pm.series_id = $4 THEN 'series'
-                 WHEN EXISTS (SELECT 1 FROM participants pp WHERE pp.meeting_id = pm.id AND pp.person_id = ANY($6::uuid[])) THEN 'participants'
-                 ELSE 'project' END AS via
-       FROM meetings pm
-      WHERE pm.workspace_id = $1 AND ${meetingVisibleSql('pm', '$2')} AND pm.id <> $3
-        AND ${meetingTimeSql('pm')} < $7
-        AND (($4::uuid IS NOT NULL AND pm.series_id = $4)
-          OR ($5::uuid IS NOT NULL AND pm.project_id = $5)
-          OR EXISTS (SELECT 1 FROM participants pp WHERE pp.meeting_id = pm.id AND pp.person_id = ANY($6::uuid[])))
-      ORDER BY ($4::uuid IS NOT NULL AND pm.series_id = $4) DESC, ${meetingTimeSql('pm')} DESC
-      LIMIT 1`,
-    [ctx.workspaceId, ctx.userId, m.id, m.series_id ?? null, m.project_id ?? null, otherPersonIds, t],
-  );
+  const base = `pm.workspace_id = $1 AND ${meetingVisibleSql('pm', '$2')} AND pm.id <> $3 AND ${meetingTimeSql('pm')} < $4`;
+  const pick = (cond: string, extra: unknown) =>
+    one<any>(db, `SELECT pm.* FROM meetings pm WHERE ${base} AND ${cond} ORDER BY ${meetingTimeSql('pm')} DESC, pm.id DESC LIMIT 1`, [ctx.workspaceId, ctx.userId, m.id, t, extra]);
+  if (m.series_id) {
+    const s = await pick('pm.series_id = $5', m.series_id);
+    if (s) return { ...s, via: 'series' };
+  }
+  const byPeople = otherPersonIds.length
+    ? await pick('pm.id IN (SELECT pp.meeting_id FROM participants pp WHERE pp.person_id = ANY($5::uuid[]))', otherPersonIds)
+    : null;
+  const byProject = m.project_id ? await pick('pm.project_id = $5', m.project_id) : null;
+  const time = (x: any) => +new Date(x.scheduled_start ?? x.started_at ?? x.created_at);
+  if (byPeople && (!byProject || time(byPeople) >= time(byProject))) return { ...byPeople, via: 'participants' };
+  if (byProject) return { ...byProject, via: 'project' };
+  return null;
 }
 
 export interface RelatedScope {
@@ -112,14 +117,11 @@ export function withPersons(base: Scope, personIds: string[], kind: 'decision' |
     const p = s.p(personIds);
     if (kind === 'action') s.ors.push(`{a}.assignee_person_id = ANY(${p}::uuid[])`);
     if (kind === 'commitment') s.ors.push(`({a}.promised_by_person_id = ANY(${p}::uuid[]) OR {a}.promised_to_person_id = ANY(${p}::uuid[]))`);
-    if (kind === 'decision') s.ors.push(`({a}.owner_person_id = ANY(${p}::uuid[]) OR {a}.participant_person_ids && ${p}::uuid[])`);
+    // owner only: array operators (&&, @>) are not leakproof, so under RLS they could not use an index (→ seq scan)
+    if (kind === 'decision') s.ors.push(`{a}.owner_person_id = ANY(${p}::uuid[])`);
     if (kind === 'question') s.ors.push(`{a}.owner_person_id = ANY(${p}::uuid[])`);
   }
   return s.ors.length ? s : null;
-}
-
-function cap<T>(list: T[], n: number): { items: T[]; more: number } {
-  return { items: list.slice(0, n), more: Math.max(0, list.length - n) };
 }
 
 export async function buildBrief(db: Db, ctx: WsCtx, m: any) {
@@ -135,14 +137,17 @@ export async function buildBrief(db: Db, ctx: WsCtx, m: any) {
   const sa = withPersons(rel.base, rel.personIds, 'action');
   const sc = withPersons(rel.base, rel.personIds, 'commitment');
   const sq = withPersons(rel.base, rel.personIds, 'question');
-  const decisions = sd ? await loadDecisions(db, sd, { view: 'current', limit: L.decisions + 1 }) : [];
-  const actions = sa ? await loadActions(db, sa, { statuses: ['confirmed', 'in_progress'], today, limit: L.actions + 1 }) : [];
-  const commitments = sc ? await loadCommitments(db, sc, { statuses: ['open'], today, limit: L.commitments * 3 + 3 }) : [];
-  const questions = sq ? await loadQuestions(db, sq, { statuses: ['open'], limit: L.questions + 1 }) : [];
+  const decisions = sd ? await loadDecisions(db, sd, { view: 'current', limit: L.decisions }) : [];
+  const actions = sa ? await loadActions(db, sa, { statuses: ['confirmed', 'in_progress'], today, limit: L.actions }) : [];
+  const byDir = async (direction: 'mine' | 'theirs' | 'other') =>
+    sc ? loadCommitments(db, sc, { statuses: ['open'], today, limit: L.commitments, direction }) : [];
+  const commitments = { mine: await byDir('mine'), theirs: await byDir('theirs'), others: await byDir('other') };
+  const questions = sq ? await loadQuestions(db, sq, { statuses: ['open'], limit: L.questions }) : [];
   const since = new Date(now.getTime() - 30 * 86400_000).toISOString();
   const changes = sd ? await loadChanges(db, sd, { sinceIso: since, limit: L.changes }) : [];
+  const nCommit = commitments.mine.length + commitments.theirs.length + commitments.others.length;
 
-  const firstMeeting = !rel.previous && !decisions.length && !actions.length && !commitments.length && !questions.length && !changes.length;
+  const firstMeeting = !rel.previous && !decisions.length && !actions.length && !nCommit && !questions.length && !changes.length;
   const base = {
     meeting: meetingBrief(m),
     generatedAt: now.toISOString(),
@@ -162,6 +167,7 @@ export async function buildBrief(db: Db, ctx: WsCtx, m: any) {
       openQuestions: [],
       personNotes: [],
       recentChanges: [],
+      counts: { decisions: 0, actions: 0, commitments: 0, commitmentsMine: 0, commitmentsTheirs: 0, commitmentsOthers: 0, questions: 0 },
       more: { decisions: 0, actions: 0, commitments: 0, questions: 0 },
     };
   }
@@ -194,24 +200,28 @@ export async function buildBrief(db: Db, ctx: WsCtx, m: any) {
     }
   }
 
-  const d = cap(decisions, L.decisions);
-  const a = cap(actions, L.actions);
-  const q = cap(questions, L.questions);
-  const split = (dir: string) => commitments.filter((c) => c.direction === dir).slice(0, L.commitments);
+  // exact totals for "ほか N件" (only when a section is full)
+  const total = async (shown: number, limit: number, count: () => Promise<number>) => (shown < limit ? shown : count());
+  const nd = await total(decisions.length, L.decisions, () => countCurrentDecisions(db, sd!));
+  const na = await total(actions.length, L.actions, () => countByStatus(db, 'action', sa!, ['confirmed', 'in_progress']));
+  const nq = await total(questions.length, L.questions, () => countByStatus(db, 'question', sq!, ['open']));
+  const full = commitments.mine.length >= L.commitments || commitments.theirs.length >= L.commitments || commitments.others.length >= L.commitments;
+  const cc = full && sc ? await countCommitmentsByDirection(db, sc, ['open']) : { mine: commitments.mine.length, theirs: commitments.theirs.length, other: commitments.others.length };
   return {
     ...base,
     previousMeeting: rel.previous ? { ...meetingBrief(rel.previous), via: rel.previous.via as 'series' | 'participants' | 'project' } : null,
-    currentDecisions: d.items,
-    openActions: a.items,
-    commitments: { mine: split('mine'), theirs: split('theirs'), others: split('other') },
-    openQuestions: q.items,
+    currentDecisions: decisions,
+    openActions: actions,
+    commitments,
+    openQuestions: questions,
     personNotes,
     recentChanges: changes,
+    counts: { decisions: nd, actions: na, commitments: cc.mine + cc.theirs + cc.other, commitmentsMine: cc.mine, commitmentsTheirs: cc.theirs, commitmentsOthers: cc.other, questions: nq },
     more: {
-      decisions: d.more,
-      actions: a.more,
-      commitments: ['mine', 'theirs', 'other'].reduce((n, dir) => n + Math.max(0, commitments.filter((c) => c.direction === dir).length - L.commitments), 0),
-      questions: q.more,
+      decisions: nd - decisions.length,
+      actions: na - actions.length,
+      commitments: cc.mine + cc.theirs + cc.other - nCommit,
+      questions: nq - questions.length,
     },
   };
 }

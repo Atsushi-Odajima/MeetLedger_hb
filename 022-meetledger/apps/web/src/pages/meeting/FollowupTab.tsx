@@ -98,7 +98,15 @@ function Draft({ d, onChange }: { d: FollowupListItem; onChange(): void }) {
     }
   };
   const text = subject ? `${subject}\n\n${body}` : body;
-  const warnings = (d.warnings ?? []).map((w) => (typeof w === 'string' ? w : (w.message ?? w.code ?? ''))).filter(Boolean);
+  const warnings = (d.warnings ?? [])
+    .map((w) => (typeof w === 'string' ? w : (w.message ?? w.code ?? '')))
+    .filter(Boolean)
+    .map((w) => {
+      const [code, n] = w.split(':');
+      if (code === 'candidates_excluded') return t('followup.warn.candidatesExcluded', { n: n ?? '' });
+      if (code === 'no_confirmed_items') return t('followup.warn.noConfirmedItems');
+      return w;
+    });
   return (
     <Card
       title={t(`followupKind.${d.kind}` as MsgKey)}

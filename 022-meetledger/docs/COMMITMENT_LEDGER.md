@@ -47,17 +47,29 @@
 
 Candidate の状態は PATCH では変更できません（409 `use_review`）。確定・却下は Review Inbox で行います。
 
+**ページング（全一覧共通: decisions / actions / commitments / questions / contradictions）**: `limit`（既定50、最大200）と `cursor`（前ページの `nextCursor`、不透明な keyset カーソル）。
+レスポンスは `{items, nextCursor, total}`。`total` は ACL 適用後の正確な件数で、**最初のページ（cursor なし）でのみ**計算します（2ページ目以降は `null`）。
+並び順: Decision = 決定日の新しい順、Action / Commitment = 期限の近い順（期限なしは最後）、Question = 作成の新しい順。
+
 ## 5. Review Inbox {#review-inbox}
 
 | Method | Path | 説明 |
 |---|---|---|
-| GET | `/api/w/:ws/review?meetingId` | 4種類の候補（`{type, item, flags}`）、`flags = {assigneeInferred, dueInferred, missingOwner, missingDue, sourceStatus}`、未マッピングの話者、Person 未紐付けの参加者、未解決の矛盾候補、件数 |
+| GET | `/api/w/:ws/review?meetingId&type&limit&groupLimit&cursor` | 会議ごとにグループ化した候補。下記参照 |
 | POST | `/api/w/:ws/review/:type/:id/accept` | `{edits?, confirmInferred?}` → decision: confirmed / action: confirmed / commitment: open / question: open |
 | POST | `/api/w/:ws/review/:type/:id/reject` | `{reason?}` → rejected（行は残り、再抽出でも作り直さない） |
 | PATCH | `/api/w/:ws/review/:type/:id` | 候補のまま編集（担当・期限を人が決めると推測フラグは消える） |
 | GET | `/api/w/:ws/review/:type/:id/events` | その項目の ledger_events |
 
 `type` = `decision | action | commitment | question`。`edits` は種類ごとのホワイトリスト（未知のキー、例えば `status` は 400）。
+
+`GET /review` のレスポンス:
+- `counts`（`decision/action/commitment/question/contradiction`）と `total` … **受信箱全体**（全ページ）の正確な件数（タブのバッジ用）
+- `groups` … 1ページ分の会議（既定20件、`groupLimit` 最大50、会議日の新しい順）。各グループに会議別件数 `counts`、`total`、`itemsIncluded`（`items` に含めた件数。残りは `?meetingId=` で取得）
+- `items` … そのページの会議の候補（`{type, item, flags}`、既定100件・最大300件）。`flags = {assigneeInferred, dueInferred, missingOwner, missingDue, sourceStatus}`
+- `nextCursor` … 次の会議ページ。`meetingId` 指定時はその会議の候補をページング
+- `contradictions` / `unmappedSpeakers` / `unlinkedParticipants` … そのページの会議分のみ（話者・参加者は `id` を持つ）
+- `type` で種類を絞り込み（その種類の候補がある会議だけを返す）。見えない Meeting を `meetingId` に指定すると 404
 すべての変更は `ledger_events`（誰が・何を・差分）に記録され、Meeting の再インデックス（`index.meeting`）を登録します。
 権限: 閲覧は viewer 以上、accept/reject/edit は member 以上。見えない Meeting の項目は 404。
 

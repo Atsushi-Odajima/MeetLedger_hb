@@ -22,6 +22,8 @@ export {
 } from './service';
 export { runExtraction, prepareExtraction, persistExtraction, detectContradictions } from './extract';
 export { validateExtraction } from './validate';
+export { reviewInbox } from './review';
+export type { ReviewInbox, ReviewGroup, ReviewItem, ReviewOpts } from './review';
 export { contradictionReason, valueSet, valuePart } from './contradictions';
 export { extractJobKey, notesVersionHash, COACH_DISCLAIMER_JA, COACH_DISCLAIMER_EN } from './meetingRoutes';
 

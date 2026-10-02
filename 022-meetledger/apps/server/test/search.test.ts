@@ -406,3 +406,71 @@ describe('search: deletion & privacy preview', () => {
     expect(joined).not.toContain('田中さんと価格');
   });
 });
+
+describe('search: scale behaviour (recency windows under RLS)', () => {
+  it('walks meetings newest-first in windows; reports truncated + searchedFrom when older meetings were not searched', async () => {
+    const { searchTuning } = await import('../src/modules/search/search');
+    const saved = { ...searchTuning };
+    try {
+      searchTuning.firstWindow = 2;
+      // common term, small page: satisfied by the newest window -> truncated with a hint
+      const r = await search(bob.client, `q=${encodeURIComponent('価格')}&limit=1`);
+      expect(r.status).toBe(200);
+      expect(r.body.items).toHaveLength(1);
+      expect(r.body.truncated).toBe(true);
+      expect(r.body.searchedFrom).toMatch(/^\d{4}-/);
+      expect(r.body.hint).toContain('期間');
+      // no budget left after the first window: nothing older is searched, and it is reported
+      searchTuning.budgetMs = 0;
+      const none = await search(bob.client, `q=${encodeURIComponent('月額5万円')}`);
+      expect(none.body.truncated).toBe(true);
+      // a narrow scope (project) is exhausted -> complete, not truncated
+      Object.assign(searchTuning, saved);
+      const proj = await search(bob.client, `q=${encodeURIComponent('価格')}&projectId=${ids.clientA}`);
+      expect(proj.body.truncated).toBe(false);
+      expect(proj.body.items.every((h: any) => h.meetingId === ids.m1)).toBe(true);
+      // windows never cross the ACL: tiny windows still never return inaccessible meetings
+      searchTuning.firstWindow = 1;
+      searchTuning.budgetMs = 10_000;
+      const all = await search(bob.client, `q=${encodeURIComponent('価格')}&limit=100`);
+      expect(all.body.truncated).toBe(false);
+      expect(all.body.items.some((h: any) => [ids.priv, ids.sel, ids.tenantB].includes(h.meetingId))).toBe(false);
+      expect(all.body.items.some((h: any) => h.meetingId === ids.m1)).toBe(true);
+    } finally {
+      Object.assign(searchTuning, saved);
+    }
+  });
+
+  it('exact path (when a DBA makes `@@` leakproof so GIN is usable) returns the same ACL-filtered results', async () => {
+    const { setGinOverride } = await import('../src/modules/search/windows');
+    const windowed = await search(bob.client, `q=${encodeURIComponent('価格')}&limit=100`);
+    setGinOverride(true);
+    try {
+      const exact = await search(bob.client, `q=${encodeURIComponent('価格')}&limit=100`);
+      expect(exact.body.truncated).toBe(false);
+      expect(exact.body.items.map((h: any) => h.id).sort()).toEqual(windowed.body.items.map((h: any) => h.id).sort());
+      expect(exact.body.items.some((h: any) => [ids.priv, ids.sel, ids.tenantB].includes(h.meetingId))).toBe(false);
+    } finally {
+      setGinOverride(null);
+    }
+  });
+
+  it('ask walks AI-eligible meetings in windows and reports truncation in scope', async () => {
+    const { askTuning } = await import('../src/modules/search/ask');
+    const saved = { ...askTuning };
+    try {
+      askTuning.firstWindow = 1;
+      askTuning.budgetMs = 0;
+      ai.calls = [];
+      const r = await ask(bob.client, { question: '価格について何を決めた？' });
+      expect(r.status).toBe(200);
+      expect(r.body.scope.truncated).toBe(true);
+      expect(r.body.scope.searchedFrom).toMatch(/^\d{4}-/);
+      for (const c of ai.calls) expect(c.call.meetingIds).toHaveLength(1); // only the newest AI-eligible meeting was used
+    } finally {
+      Object.assign(askTuning, saved);
+    }
+    const full = await ask(bob.client, { question: '価格について何を決めた？' });
+    expect(full.body.scope.truncated).toBe(false);
+  });
+});

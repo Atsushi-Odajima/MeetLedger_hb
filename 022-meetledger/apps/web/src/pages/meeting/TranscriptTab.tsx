@@ -316,6 +316,9 @@ export function TranscriptTab() {
   const [matchIdx, setMatchIdx] = useState(0);
   const [limit, setLimit] = useState(PAGE);
   const [speakerEdit, setSpeakerEdit] = useState<SpeakerDto | null>(null);
+  const [remapped, setRemapped] = useState(false);
+  const [reextracting, setReextracting] = useState(false);
+  const toast = useToast();
   const [currentMs, setCurrentMs] = useState<number | null>(null);
   const audioRef = useRef<HTMLAudioElement>(null);
   const [audioSrc, setAudioSrc] = useState<string | null>(null);
@@ -484,6 +487,30 @@ export function TranscriptTab() {
           {unmapped.length > 0 && <span className="field-hint">{t('transcript.unmappedN', { n: unmapped.length })}</span>}
         </div>
       )}
+      {remapped && meeting.canEdit && meeting.aiEnabled !== false && !version && (
+        <Alert tone="info" title={t('transcript.reextractTitle')}>
+          <p>{t('transcript.reextractHint')}</p>
+          <Button
+            size="sm"
+            icon="sparkle"
+            loading={reextracting}
+            onClick={async () => {
+              setReextracting(true);
+              try {
+                await api.post(ma('/extract'), { rerun: true });
+                toast.success(t('transcript.reextractQueued'));
+                setRemapped(false);
+              } catch (e) {
+                toast.error(e);
+              } finally {
+                setReextracting(false);
+              }
+            }}
+          >
+            {t('transcript.reextract')}
+          </Button>
+        </Alert>
+      )}
       <p className="field-hint legend">
         <span className="legend-low">{t('transcript.lowConfidence')}</span> <span className="inaudible">{t('transcript.inaudible')}</span> {t('transcript.legend')}
       </p>
@@ -507,7 +534,14 @@ export function TranscriptTab() {
           {t('transcript.showMore', { n: segments.length - limit })}
         </Button>
       )}
-      <SpeakerDialog speaker={speakerEdit} onClose={() => setSpeakerEdit(null)} onSaved={tr.reload} />
+      <SpeakerDialog
+        speaker={speakerEdit}
+        onClose={() => setSpeakerEdit(null)}
+        onSaved={() => {
+          tr.reload();
+          setRemapped(true);
+        }}
+      />
     </div>
   );
 }

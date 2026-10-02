@@ -473,6 +473,93 @@ describe('ledger: AI extraction (local-rules), review, decisions, actions, commi
     expect((await deliveries()).map((x: any) => x.event)).toEqual(['decision.confirmed', 'decision.changed', 'decision.confirmed']);
   });
 
+  it('一覧はkeysetページング（limit + cursor + total）、不正なcursorは400', async () => {
+    const all = await o.client.get(`${W()}/decisions?view=all`);
+    const n = all.body.total;
+    expect(n).toBeGreaterThan(4);
+    const seen: string[] = [];
+    let cursor: string | null = null;
+    let first = true;
+    do {
+      const r: any = await o.client.get(`${W()}/decisions?view=all&limit=2${cursor ? `&cursor=${cursor}` : ''}`);
+      expect(r.status).toBe(200);
+      expect(r.body.items.length).toBeLessThanOrEqual(2);
+      expect(r.body.total).toBe(first ? n : null);
+      first = false;
+      seen.push(...r.body.items.map((d: any) => d.id));
+      cursor = r.body.nextCursor;
+    } while (cursor);
+    expect(seen).toHaveLength(n);
+    expect(new Set(seen).size).toBe(n);
+    expect(seen).toEqual(all.body.items.map((d: any) => d.id));
+    const acts = await o.client.get(`${W()}/actions?limit=1`);
+    expect(acts.body.items).toHaveLength(1);
+    expect(acts.body.nextCursor).toBeTruthy();
+    const next = await o.client.get(`${W()}/actions?limit=1&cursor=${acts.body.nextCursor}`);
+    expect(next.body.items[0].id).not.toBe(acts.body.items[0].id);
+    expect((await o.client.get(`${W()}/actions?cursor=bm90LWEtY3Vyc29y`)).status).toBe(400);
+    expect((await o.client.get(`${W()}/decisions?limit=1000`)).status).toBe(400);
+  });
+
+  it('Review Inboxは会議ごとにグループ化され、全体件数・会議別件数・ページングを返す', async () => {
+    const full = await o.client.get(`${W()}/review?groupLimit=50&limit=300`);
+    expect(full.status).toBe(200);
+    const totalItems = full.body.counts.decision + full.body.counts.action + full.body.counts.commitment + full.body.counts.question;
+    expect(full.body.total).toBe(totalItems);
+    expect(full.body.items).toHaveLength(totalItems);
+    expect(full.body.nextCursor).toBeNull();
+    expect(full.body.groups.reduce((s: number, g: any) => s + g.total, 0)).toBe(totalItems);
+    // newest meeting first, every item belongs to a listed group
+    const groupIds = full.body.groups.map((g: any) => g.meetingId);
+    expect(full.body.items.every((i: any) => groupIds.includes(i.item.meetingId))).toBe(true);
+    const dates = full.body.groups.map((g: any) => g.meetingDate);
+    expect([...dates].sort().reverse()).toEqual(dates);
+    // one meeting per page: pages cover every group exactly once, counts stay inbox-wide
+    const pagedGroups: string[] = [];
+    let cursor: string | null = null;
+    do {
+      const r: any = await o.client.get(`${W()}/review?groupLimit=1${cursor ? `&cursor=${cursor}` : ''}`);
+      expect(r.body.groups).toHaveLength(1);
+      expect(r.body.counts).toEqual(full.body.counts);
+      expect(r.body.items.every((i: any) => i.item.meetingId === r.body.groups[0].meetingId)).toBe(true);
+      pagedGroups.push(r.body.groups[0].meetingId);
+      cursor = r.body.nextCursor;
+    } while (cursor);
+    expect(pagedGroups).toEqual(groupIds);
+    // type filter: only meetings with that type, only items of that type
+    const onlyQ = await o.client.get(`${W()}/review?type=action`);
+    expect(onlyQ.body.items.every((i: any) => i.type === 'action')).toBe(true);
+    expect(onlyQ.body.groups.every((g: any) => g.counts.action > 0)).toBe(true);
+    // per-meeting paging of items
+    const g = full.body.groups.find((x: any) => x.total >= 2);
+    const p1 = await o.client.get(`${W()}/review?meetingId=${g.meetingId}&limit=1`);
+    expect(p1.body.items).toHaveLength(1);
+    expect(p1.body.groups[0].counts).toEqual(g.counts);
+    const p2 = await o.client.get(`${W()}/review?meetingId=${g.meetingId}&limit=1&cursor=${p1.body.nextCursor}`);
+    expect(p2.body.items[0].item.id).not.toBe(p1.body.items[0].item.id);
+    // speakers / participants carry an `id` (web UI key)
+    expect(full.body.unmappedSpeakers.every((s: any) => s.id && s.id === s.speakerId)).toBe(true);
+    // unknown or invisible meeting -> 404
+    expect((await o.client.get(`${W()}/review?meetingId=00000000-0000-4000-8000-000000000000`)).status).toBe(404);
+  });
+
+  it('矛盾候補の検出は有界（新しい決定1件につき最新の競合3件まで）', async () => {
+    for (const day of [1, 2, 3, 4, 5]) {
+      const r = await o.client.post(`${W()}/decisions`, { text: `リリース日は11月${day}日にします`, topic: 'リリース日' });
+      expect(r.status).toBe(200);
+    }
+    const m = await createMeeting(o.client, ws, { title: 'Bounded contradictions' });
+    await transcript(env, o.orgId, m.id, [{ speaker: 'Speaker 1', text: 'リリース日は11月20日にします。' }]);
+    await extract(env, o.client, ws, m.id);
+    const d = (await ledger(o.client, ws, m.id)).decisions[0];
+    expect(d.topic).toBe('リリース日');
+    const c = await o.client.get(`${W()}/contradictions?status=open&meetingId=${m.id}`);
+    const mine = c.body.items.filter((x: any) => x.newDecision.id === d.id);
+    expect(mine).toHaveLength(3);
+    // the newest conflicting decisions are the ones reported
+    expect(mine.map((x: any) => x.existingDecision.text).sort()).toEqual(['リリース日は11月3日にします', 'リリース日は11月4日にします', 'リリース日は11月5日にします']);
+  });
+
   it('ログに会議本文を出さない', () => {
     const all = env.logs.join('\n');
     expect(all).not.toContain('公開日は10月');

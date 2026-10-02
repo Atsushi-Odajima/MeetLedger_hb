@@ -9,7 +9,8 @@ import { badRequest, conflict } from '../../lib/errors';
 import { body, iso, parse, query, wsIdParams, wsParams, zUuid } from '../../lib/http';
 import { meetingVisibleSql, workspaceCtx } from '../../rbac/access';
 import { ledgerEvent, loadItem, scopeOf, topicKeyOf, type LedgerScope, type LedgerType } from './common';
-import { decisionsByIds, itemDto, listActions, listCommitments, listContradictions, listDecisions, listQuestions } from './queries';
+import { DEFAULT_PAGE, MAX_PAGE, decisionsByIds, itemDto, listActions, listCommitments, listContradictions, listDecisions, listQuestions, pageContradictions } from './queries';
+import { reviewInbox } from './review';
 import {
   EDIT_SCHEMAS,
   acceptItem,
@@ -24,7 +25,9 @@ import {
   supersedeDecision,
 } from './service';
 
-const zLimit = z.coerce.number().int().min(1).max(500).default(200);
+const zLimit = z.coerce.number().int().min(1).max(MAX_PAGE).default(DEFAULT_PAGE);
+/** opaque keyset cursor (nextCursor of the previous page) */
+const zCursor = z.string().max(400).regex(/^[A-Za-z0-9_-]+$/).optional();
 const zFlag = z
   .union([z.literal('1'), z.literal('true'), z.literal('0'), z.literal('false')])
   .optional()
@@ -67,7 +70,7 @@ export default async function ledgerRoutes(app: FastifyInstance, deps: Deps) {
         meetingId: zUuid.optional(),
         topic: z.string().max(200).optional(),
         limit: zLimit,
-        cursor: z.string().regex(/^\d+$/).optional(),
+        cursor: zCursor,
       }),
     );
     return ctx.tx((db) => listDecisions(db, scopeOf(ctx), { ...q, topicKey: q.topic ? (topicKeyOf(q.topic) ?? undefined) : undefined }));
@@ -195,7 +198,7 @@ export default async function ledgerRoutes(app: FastifyInstance, deps: Deps) {
         meetingId: zUuid.optional(),
         projectId: zUuid.optional(),
         limit: zLimit,
-        cursor: z.string().regex(/^\d+$/).optional(),
+        cursor: zCursor,
       }),
     );
     return ctx.tx((db) => listActions(db, scopeOf(ctx), q));
@@ -237,7 +240,7 @@ export default async function ledgerRoutes(app: FastifyInstance, deps: Deps) {
         projectId: zUuid.optional(),
         personId: zUuid.optional(),
         limit: zLimit,
-        cursor: z.string().regex(/^\d+$/).optional(),
+        cursor: zCursor,
       }),
     );
     return ctx.tx((db) => listCommitments(db, scopeOf(ctx), q));
@@ -271,7 +274,7 @@ export default async function ledgerRoutes(app: FastifyInstance, deps: Deps) {
     const ctx = await workspaceCtx(deps, req, workspaceId);
     const q = query(
       req,
-      z.object({ status: z.enum([...QUESTION_STATUSES]).optional(), meetingId: zUuid.optional(), projectId: zUuid.optional(), limit: zLimit, cursor: z.string().regex(/^\d+$/).optional() }),
+      z.object({ status: z.enum([...QUESTION_STATUSES]).optional(), meetingId: zUuid.optional(), projectId: zUuid.optional(), limit: zLimit, cursor: zCursor }),
     );
     return ctx.tx((db) => listQuestions(db, scopeOf(ctx), q));
   });
@@ -342,72 +345,24 @@ export default async function ledgerRoutes(app: FastifyInstance, deps: Deps) {
   }
 
   // ================================================================ Review Inbox
+  /**
+   * Review Inbox: candidates grouped by meeting. `counts`/`total` cover the whole inbox; `groups` + `items` are one page
+   * of meetings (`nextCursor`); with `meetingId` the items of that meeting are paged instead.
+   */
   app.get('/api/w/:workspaceId/review', async (req) => {
     const { workspaceId } = parse(wsParams, req.params);
     const ctx = await workspaceCtx(deps, req, workspaceId);
-    const q = query(req, z.object({ meetingId: zUuid.optional() }));
-    return ctx.tx(async (db) => {
-      const scope = scopeOf(ctx);
-      const [decisions, actions, commitments, questions] = [
-        await listDecisions(db, scope, { view: 'candidates', meetingId: q.meetingId, limit: 500 }),
-        await listActions(db, scope, { status: 'candidate', meetingId: q.meetingId, limit: 500 }),
-        await listCommitments(db, scope, { status: 'candidate', meetingId: q.meetingId, limit: 500 }),
-        await listQuestions(db, scope, { status: 'candidate', meetingId: q.meetingId, limit: 500 }),
-      ];
-      const items = [
-        ...decisions.items.map((item) => ({ type: 'decision' as const, item, flags: { assigneeInferred: false, dueInferred: false, missingOwner: false, missingDue: false, sourceStatus: item.source?.status ?? null } })),
-        ...actions.items.map((item) => ({
-          type: 'action' as const,
-          item,
-          flags: {
-            assigneeInferred: item.assigneeInferred,
-            dueInferred: item.dueInferred,
-            missingOwner: !item.assigneePersonId && !item.assigneeUserId && !item.assigneeText,
-            missingDue: !item.dueDate,
-            sourceStatus: item.source?.status ?? null,
-          },
-        })),
-        ...commitments.items.map((item) => ({
-          type: 'commitment' as const,
-          item,
-          flags: { assigneeInferred: false, dueInferred: item.dueInferred, missingOwner: !item.promisedByPersonId && !item.promisedByText, missingDue: !item.dueDate, sourceStatus: item.source?.status ?? null },
-        })),
-        ...questions.items.map((item) => ({ type: 'question' as const, item, flags: { assigneeInferred: false, dueInferred: false, missingOwner: false, missingDue: false, sourceStatus: item.source?.status ?? null } })),
-      ];
-      // Meetings in scope: the given one, or every visible meeting that has candidates or needs review.
-      const mParams: unknown[] = [workspaceId, ctx.userId];
-      let mFilter = `(m.status = 'needs_review' OR EXISTS (SELECT 1 FROM decisions d WHERE d.meeting_id = m.id AND d.review_state='candidate')
-                     OR EXISTS (SELECT 1 FROM actions a WHERE a.meeting_id = m.id AND a.status='candidate'))`;
-      if (q.meetingId) {
-        mParams.push(q.meetingId);
-        mFilter = 'm.id = $3';
-      }
-      const meetingFrom = `FROM meetings m WHERE m.workspace_id = $1 AND ${meetingVisibleSql('m', '$2')} AND ${mFilter}`;
-      const unmappedSpeakers = await rows(
-        db,
-        `SELECT sp.id AS speaker_id, sp.label, m.id AS meeting_id, m.title AS meeting_title FROM meeting_speakers sp
-          JOIN meetings m ON m.id = sp.meeting_id
-         WHERE sp.person_id IS NULL AND m.id IN (SELECT m.id ${meetingFrom})
-           AND EXISTS (SELECT 1 FROM transcript_segments s JOIN transcripts t ON t.id = s.transcript_id AND t.is_current WHERE s.speaker_id = sp.id)
-         ORDER BY m.title, sp.label LIMIT 500`,
-        mParams,
-      );
-      const unlinkedParticipants = await rows(
-        db,
-        `SELECT pa.id AS participant_id, pa.display_name, m.id AS meeting_id, m.title AS meeting_title FROM participants pa
-          JOIN meetings m ON m.id = pa.meeting_id
-         WHERE pa.person_id IS NULL AND m.id IN (SELECT m.id ${meetingFrom}) ORDER BY m.title, pa.display_name LIMIT 500`,
-        mParams,
-      );
-      const contradictions = await listContradictions(db, scope, { status: 'open', meetingId: q.meetingId });
-      return {
-        items,
-        counts: { decision: decisions.items.length, action: actions.items.length, commitment: commitments.items.length, question: questions.items.length, contradiction: contradictions.length },
-        unmappedSpeakers: unmappedSpeakers.map((s) => ({ speakerId: s.speaker_id, label: s.label, meetingId: s.meeting_id, meetingTitle: s.meeting_title })),
-        unlinkedParticipants: unlinkedParticipants.map((p) => ({ participantId: p.participant_id, displayName: p.display_name, meetingId: p.meeting_id, meetingTitle: p.meeting_title })),
-        contradictions,
-      };
-    });
+    const q = query(
+      req,
+      z.object({
+        meetingId: zUuid.optional(),
+        type: z.enum(['decision', 'action', 'commitment', 'question', 'contradiction']).optional(),
+        limit: z.coerce.number().int().min(1).max(300).default(100),
+        groupLimit: z.coerce.number().int().min(1).max(50).default(20),
+        cursor: zCursor,
+      }),
+    );
+    return ctx.tx((db) => reviewInbox(db, scopeOf(ctx), q));
   });
 
   app.post('/api/w/:workspaceId/review/:type/:id/accept', async (req) => {
@@ -468,8 +423,11 @@ export default async function ledgerRoutes(app: FastifyInstance, deps: Deps) {
   app.get('/api/w/:workspaceId/contradictions', async (req) => {
     const { workspaceId } = parse(wsParams, req.params);
     const ctx = await workspaceCtx(deps, req, workspaceId);
-    const q = query(req, z.object({ status: z.enum(['open', 'confirmed_change', 'not_change', 'dismissed', 'all']).default('open'), meetingId: zUuid.optional() }));
-    return ctx.tx(async (db) => ({ items: await listContradictions(db, scopeOf(ctx), q) }));
+    const q = query(
+      req,
+      z.object({ status: z.enum(['open', 'confirmed_change', 'not_change', 'dismissed', 'all']).default('open'), meetingId: zUuid.optional(), limit: zLimit, cursor: zCursor }),
+    );
+    return ctx.tx((db) => pageContradictions(db, scopeOf(ctx), q));
   });
 
   app.post('/api/w/:workspaceId/contradictions/:id/resolve', async (req) => {

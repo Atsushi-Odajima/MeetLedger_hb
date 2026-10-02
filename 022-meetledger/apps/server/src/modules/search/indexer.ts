@@ -42,6 +42,7 @@ export async function purgeMeetingAiIndex(db: Db, meetingId: string): Promise<nu
 export async function purgeMeetingIndex(db: Db, meetingId: string): Promise<{ aiChunks: number; searchDocs: number; segments: number }> {
   const aiChunks = await purgeMeetingAiIndex(db, meetingId);
   const d = await db.query('DELETE FROM search_docs WHERE meeting_id=$1', [meetingId]);
+  await db.query('DELETE FROM search_person_refs WHERE meeting_id=$1', [meetingId]);
   const s = await db.query('UPDATE transcript_segments SET tsv=NULL WHERE meeting_id=$1 AND tsv IS NOT NULL', [meetingId]);
   return { aiChunks, searchDocs: d.rowCount ?? 0, segments: s.rowCount ?? 0 };
 }
@@ -401,6 +402,17 @@ export async function indexMeeting(deps: Deps, orgId: string, meetingId: string,
         [segs.map((s) => s.id), segs.map((s) => indexTsv(s.text)), meetingId],
       );
       segmentsUpdated = r.rowCount ?? 0;
+    }
+
+    // people related to this meeting (btree lookup for the personId search filter; GIN is unusable under RLS)
+    const refIds = uniq([...participantIds, ...segs.map((s) => s.person_id).filter(Boolean), ...docs.flatMap((d) => d.personIds)].filter(Boolean) as string[]);
+    await db.query('DELETE FROM search_person_refs WHERE meeting_id=$1', [meetingId]);
+    if (refIds.length) {
+      await db.query(
+        `INSERT INTO search_person_refs(org_id, workspace_id, person_id, meeting_id)
+         SELECT $1, $2, p.id, $3 FROM people p WHERE p.id = ANY($4::uuid[]) AND p.workspace_id = $2 ON CONFLICT DO NOTHING`,
+        [orgId, m.workspace_id, meetingId, refIds],
+      );
     }
 
     const settings = wsSettings(m.ws_settings);

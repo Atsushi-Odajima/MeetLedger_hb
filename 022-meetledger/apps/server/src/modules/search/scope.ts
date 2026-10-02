@@ -170,44 +170,56 @@ export interface ProjectRef {
   client_name?: string | null;
 }
 
-/** People mentioned by full name, or by family/given name followed by an honorific (田中さん) or as a Latin word. */
+/** More part-only (family/given name) matches than this is too ambiguous to use as a filter. */
+export const MAX_PERSON_MATCHES = 20;
+
+/**
+ * People mentioned by full name, or by family/given name followed by an honorific (田中さん) or as a Latin word.
+ * Full-name matches win over part matches; an ambiguous part (> MAX_PERSON_MATCHES people) is not used as a filter.
+ */
 export function matchPeople(question: string, people: PersonRef[]): { matched: PersonRef[]; strip: RegExp[] } {
   const qn = normalizeText(question);
   const qs = norm(question);
-  const matched: PersonRef[] = [];
-  const strip: RegExp[] = [];
+  const full: { p: PersonRef; re: RegExp }[] = [];
+  const part: { p: PersonRef; re: RegExp }[] = [];
   for (const p of people) {
-    const full = norm(p.name);
-    if (Array.from(full).length >= 2 && containsKey(qs, full)) {
-      matched.push(p);
-      strip.push(looseRe(full, `${HONORIFIC}?`));
+    const fullKey = norm(p.name);
+    if (!fullKey) continue;
+    if (Array.from(fullKey).length >= 2 && containsKey(qs, fullKey)) {
+      full.push({ p, re: looseRe(fullKey, `${HONORIFIC}?`) });
       continue;
     }
     const parts = normalizeText(p.name)
       .split(/[\s　・･]+/)
       .filter(Boolean);
     const keys = new Set<string>();
-    for (const part of parts) if (Array.from(part).length >= 2) keys.add(part);
-    const chars = Array.from(full);
-    if (parts.length === 1 && !isLatin(full) && chars.length >= 3) {
+    for (const x of parts) if (Array.from(x).length >= 2) keys.add(x);
+    const chars = Array.from(fullKey);
+    if (parts.length === 1 && !isLatin(fullKey) && chars.length >= 3) {
       keys.add(chars.slice(0, 2).join(''));
       if (chars.length >= 4) keys.add(chars.slice(0, 3).join(''));
     }
     for (const k of keys) {
+      if (!qs.includes(k)) continue; // cheap prefilter: regexes are only compiled for names that occur at all
       if (isLatin(k)) {
-        if (k.length >= 3 && new RegExp(`(?<![\\p{L}\\p{N}])${escRe(k)}(?![\\p{L}\\p{N}])`, 'u').test(qn)) {
-          matched.push(p);
-          strip.push(new RegExp(`(?<![\\p{L}\\p{N}])${escRe(k)}(?![\\p{L}\\p{N}])`, 'giu'));
+        const re = new RegExp(`(?<![\\p{L}\\p{N}])${escRe(k)}(?![\\p{L}\\p{N}])`, 'giu');
+        if (k.length >= 3 && re.test(qn)) {
+          re.lastIndex = 0;
+          part.push({ p, re });
           break;
         }
-      } else if (looseRe(k, HONORIFIC).test(qn)) {
-        matched.push(p);
-        strip.push(looseRe(k, HONORIFIC));
-        break;
+      } else {
+        const re = looseRe(k, HONORIFIC);
+        if (re.test(qn)) {
+          re.lastIndex = 0;
+          part.push({ p, re });
+          break;
+        }
       }
     }
   }
-  return { matched, strip };
+  const chosen = full.length ? full : part.length <= MAX_PERSON_MATCHES ? part : [];
+  return { matched: chosen.map((x) => x.p), strip: chosen.map((x) => x.re) };
 }
 
 /** Projects / clients mentioned by name or client name. */
