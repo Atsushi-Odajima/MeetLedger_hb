@@ -23,7 +23,9 @@ if (!app.isPackaged && process.env.MEETLEDGER_USER_DATA_DIR) {
   // development / smoke tests only: isolate profile
   app.setPath('userData', path.resolve(process.env.MEETLEDGER_USER_DATA_DIR));
 }
-app.enableSandbox();
+// OS-level sandbox for every renderer (webPreferences.sandbox is also set explicitly per window).
+// Dev/CI only: `--no-sandbox` (required when Chromium runs as root, e.g. the xvfb smoke test in a container) skips it.
+if (app.isPackaged || !app.commandLine.hasSwitch('no-sandbox')) app.enableSandbox();
 
 const log = (msg: string, meta?: Record<string, unknown>) => {
   // Never log transcript text, audio, tokens or URLs with credentials — ids / counts / codes only.
